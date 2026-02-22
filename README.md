@@ -90,7 +90,7 @@ via environment variables or by editing `config.py`.  **Never commit `.env`.**
 | `TRADE_FRACTION` | `0.95` | Fraction of balance used per trade batch |
 | `STOP_LOSS_PCT` | `0.015` | Stop-loss as a fraction of entry price (1.5 %) |
 | `TAKE_PROFIT_PCT` | `0.025` | Take-profit as a fraction of entry price (2.5 %) |
-| `TRADING_PAIRS` | BTC,ETH,SOL,… | Comma-separated list of symbols to scan |
+| `TRADING_PAIRS` | BTC-USDT,ETH-USDT,… | Comma-separated list of KuCoin symbols to scan (see `.env.example` for full default list) |
 | `KLINE_INTERVAL` | `5min` | Candle interval for signal generation |
 | `POLL_INTERVAL_SECONDS` | `30` | Main loop frequency (seconds) |
 | `MAX_OPEN_POSITIONS` | `3` | Maximum concurrent open positions |
@@ -100,15 +100,30 @@ via environment variables or by editing `config.py`.  **Never commit `.env`.**
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FILE` | `trading_bot.log` | Path to the log file |
 
+### Advanced configuration
+
+Tunable indicators and limits — see `.env.example` for exact defaults:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RSI_PERIOD` | `14` | Look-back period (candles) for the RSI indicator |
+| `RSI_OVERSOLD` | `35` | RSI threshold below which an asset is considered oversold |
+| `RSI_OVERBOUGHT` | `65` | RSI threshold above which an asset is considered overbought |
+| `EMA_SHORT` | `9` | Short EMA period used in the crossover signal |
+| `EMA_LONG` | `21` | Long EMA period used in the crossover signal |
+| `KLINE_LIMIT` | `100` | Number of historical candles fetched per indicator calculation |
+| `MIN_TRADE_BALANCE_USDT` | `1.0` | Minimum USDT balance required before opening new trades |
+
 ---
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `make install` | Install Python dependencies |
-| `make dev` | Install deps and run bot in paper mode |
-| `make test` | Run lint (ruff) + full unit test suite |
+| `make install` | Install runtime dependencies (`requirements.txt`) |
+| `make install-dev` | Install runtime + dev dependencies (`requirements-dev.txt`, includes ruff & pytest) |
+| `make dev` | Install dev deps and run bot in paper mode |
+| `make test` | Install dev deps, run lint (ruff) + full unit test suite |
 | `make lint` | Run ruff linter only |
 | `make fmt` | Auto-fix safe lint issues and format code |
 
@@ -120,7 +135,8 @@ via environment variables or by editing `config.py`.  **Never commit `.env`.**
 50-to-100/
 ├── bot.py           # Main bot: strategy, order management, main loop
 ├── config.py        # All configuration loaded from environment variables
-├── requirements.txt # Python dependencies
+├── requirements.txt     # Runtime Python dependencies
+├── requirements-dev.txt # Dev dependencies (ruff, pytest)
 ├── Makefile         # Developer shortcuts (install / dev / test / lint)
 ├── .env.example     # Environment variable template (copy to .env)
 ├── CHANGELOG.md     # Release notes

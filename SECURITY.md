@@ -40,7 +40,7 @@ for critical issues.
 | Threat | Likelihood | Mitigation |
 |--------|-----------|------------|
 | API credentials leaked via `.env` committed to VCS | Medium | `.env` is in `.gitignore`; use `.env.example` as template |
-| Compromised dependency supply-chain | Low-Medium | Pin deps in `requirements.txt`; run `pip audit` |
+| Compromised dependency supply-chain | Low-Medium | Use minimum version constraints in `requirements.txt`; run `pip audit` regularly |
 | Bot configured with dangerously high `TRADE_FRACTION` | Medium | Default 0.95 is aggressive; operator should lower for safety |
 | Runaway trading loop from unhandled exception | Low | Main loop catches all exceptions and logs them; equity floor halts the bot |
 | Hardcoded secrets in source code | Low | Credentials are read exclusively from environment variables; config.py has no defaults |
