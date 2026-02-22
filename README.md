@@ -111,7 +111,7 @@ via environment variables or by editing `config.py`.  **Never commit `.env`.**
 | `COOLDOWN_SECONDS` | `300` | Cool-down duration in seconds |
 | `MIN_CONFIDENCE` | `0.0` | Minimum signal confidence (0-1) to open a position (0 = disabled) |
 | `MAX_PORTFOLIO_HEAT` | `0.06` | Max fraction of capital at risk across all open positions |
-| `MAX_SLIPPAGE_PCT` | `0.002` | Reject fills deviating more than 0.2 % from expected price |
+| `MAX_SLIPPAGE_PCT` | `0.002` | Reject entries when fill deviates more than 0.2 % from expected price |
 | `USE_LIMIT_ORDERS` | `false` | Prefer limit orders over market orders (falls back to market) |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FILE` | `trading_bot.log` | Path to the log file |

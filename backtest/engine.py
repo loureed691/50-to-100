@@ -444,9 +444,15 @@ def run_backtest(
                     trade_count = 0  # risk budget exhausted
 
                 usdt_per_trade = (capital * params.trade_fraction) / max(trade_count, 1)
-                # Cap per-trade allocation to remaining risk budget
-                if trade_count > 0 and remaining_budget < usdt_per_trade * trade_count:
-                    usdt_per_trade = remaining_budget / trade_count
+                # Cap per-trade allocation so that estimated risk of new trades
+                # (assuming a stop distance of stop_loss_pct * entry) does not
+                # exceed the remaining risk budget.
+                if (
+                    trade_count > 0
+                    and params.stop_loss_pct > 0
+                    and remaining_budget < usdt_per_trade * trade_count * params.stop_loss_pct
+                ):
+                    usdt_per_trade = (remaining_budget / params.stop_loss_pct) / trade_count
                 for sym in candidates[:trade_count]:
                     idf = indicator_data[sym]
                     entry_price = idf["open"].iloc[i]  # execute at next bar open

@@ -312,20 +312,47 @@ class KuCoinBot:
 
     @staticmethod
     def _compute_confidence(ind: dict) -> float:
-        """Return a 0-1 confidence score for the signal strength."""
+        """Return a 0-1 confidence score for the signal strength.
+
+        Uses the same 5-component formula as the backtest engine's
+        ``compute_confidence`` to keep live and backtested behaviour aligned:
+          1. RSI strength (35→0, 50→1)
+          2. EMA separation (fraction of price)
+          3. Trend alignment (close vs trend EMA, if available)
+          4. ADX strength (20→0, 40→1, if available)
+          5. Volume confirmation (ratio to average, if available)
+        """
         components: list[float] = []
 
-        # RSI strength (35→0, 50→1, capped)
+        # 1. RSI strength (35→0, 50→1, capped)
         rsi_score = min(max((ind["rsi"] - 35.0) / 15.0, 0.0), 1.0)
         components.append(rsi_score)
 
-        # EMA separation magnitude
+        # 2. EMA separation magnitude
         close = ind.get("close", 0.0)
         if close > 0:
             sep = (ind["ema_short"] - ind["ema_long"]) / close
             components.append(min(max(sep / 0.005, 0.0), 1.0))
         else:
             components.append(0.0)
+
+        # 3. Trend alignment (optional — requires trend_ema in indicators)
+        trend_ema = ind.get("trend_ema")
+        if trend_ema is not None and close > 0:
+            components.append(1.0 if close > trend_ema else 0.0)
+
+        # 4. ADX strength (optional — requires adx in indicators)
+        adx = ind.get("adx")
+        if adx is not None:
+            adx_score = min(max((adx - 20.0) / 20.0, 0.0), 1.0)
+            components.append(adx_score)
+
+        # 5. Volume confirmation (optional — requires volume + avg_volume)
+        volume = ind.get("volume")
+        avg_volume = ind.get("avg_volume")
+        if volume is not None and avg_volume is not None and avg_volume > 0:
+            vol_score = min(volume / avg_volume, 1.0)
+            components.append(vol_score)
 
         return sum(components) / len(components) if components else 0.0
 
@@ -371,13 +398,38 @@ class KuCoinBot:
                         size=str(qty),
                     )
                     order_id = order.get("orderId", "unknown")
+                    # Verify fill before creating a position — limit orders
+                    # are not guaranteed to execute immediately.
+                    if order_id and order_id != "unknown":
+                        try:
+                            time.sleep(0.5)
+                            order_info = self.trade_client.get_order(order_id)
+                            filled_size = float(order_info.get("dealSize", 0) or 0)
+                            filled_funds = float(order_info.get("dealFunds", 0) or 0)
+                            if filled_size <= 0:
+                                log.info(
+                                    "Limit order %s for %s not immediately filled — skipping",
+                                    order_id, symbol,
+                                )
+                                return None
+                            qty = filled_size
+                            actual_cost = filled_funds if filled_funds > 0 else qty * price
+                        except Exception:
+                            log.warning(
+                                "Failed to fetch fill info for limit order %s on %s — "
+                                "using requested qty × price as approximate cost",
+                                order_id, symbol,
+                            )
+                            actual_cost = qty * price
+                    else:
+                        actual_cost = qty * price
                 except Exception:
                     log.info("Limit order failed for %s — falling back to market", symbol)
                     order = self.trade_client.create_market_order(
                         symbol=symbol, side="buy", size=str(qty),
                     )
                     order_id = order.get("orderId", "unknown")
-                actual_cost = qty * price
+                    actual_cost = qty * price
             else:
                 order = self.trade_client.create_market_order(
                     symbol=symbol,
@@ -389,7 +441,7 @@ class KuCoinBot:
                     log.warning("Buy order for %s returned no orderId — tracking may be unreliable", symbol)
                 actual_cost = qty * price
 
-            # Slippage cap: verify fill price hasn't deviated excessively
+            # Slippage cap: reject entry if fill price deviates excessively
             if config.MAX_SLIPPAGE_PCT > 0 and not config.PAPER_MODE:
                 try:
                     fill_ticker = self.market_client.get_ticker(symbol)
@@ -397,11 +449,27 @@ class KuCoinBot:
                     slippage = (fill_price - price) / price if price > 0 else 0.0
                     if slippage > config.MAX_SLIPPAGE_PCT:
                         log.warning(
-                            "%s: slippage %.4f%% exceeds cap %.4f%% — position opened with warning",
+                            "%s: slippage %.4f%% exceeds cap %.4f%% — rejecting entry",
                             symbol, slippage * 100, config.MAX_SLIPPAGE_PCT * 100,
                         )
-                except Exception:
-                    pass  # best-effort slippage check
+                        # Attempt to undo the order
+                        if config.PAPER_MODE:
+                            self.paper_balance += actual_cost
+                        else:
+                            try:
+                                self.trade_client.cancel_order(order_id)
+                                log.info("Cancelled order %s for %s due to slippage", order_id, symbol)
+                            except Exception as cancel_exc:
+                                log.error(
+                                    "Failed to cancel order %s for %s after slippage cap exceeded: %s",
+                                    order_id, symbol, cancel_exc,
+                                )
+                        return None
+                except Exception as exc:
+                    log.warning(
+                        "%s: slippage check skipped due to ticker fetch error: %s",
+                        symbol, exc,
+                    )
 
             stop = price * (1 - config.STOP_LOSS_PCT)
             take = price * (1 + config.TAKE_PROFIT_PCT)
@@ -548,8 +616,20 @@ class KuCoinBot:
                        current_heat, max_heat)
             return
 
+        remaining_heat = max_heat - current_heat
+
         trade_count = min(available_slots, len(candidates))
         usdt_per_trade = (balance * config.TRADE_FRACTION) / trade_count
+
+        # Cap per-trade allocation so that new positions cannot exceed remaining risk budget.
+        if config.STOP_LOSS_PCT > 0:
+            max_usdt_by_risk = (remaining_heat / config.STOP_LOSS_PCT) / trade_count
+            if usdt_per_trade > max_usdt_by_risk:
+                log.debug(
+                    "Capping usdt_per_trade from %.4f to %.4f based on remaining risk budget",
+                    usdt_per_trade, max_usdt_by_risk,
+                )
+                usdt_per_trade = max_usdt_by_risk
 
         for symbol in candidates[:trade_count]:
             pos = self._place_market_buy(symbol, usdt_per_trade)

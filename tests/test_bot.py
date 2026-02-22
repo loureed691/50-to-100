@@ -967,6 +967,180 @@ class TestBotRiskBudget(unittest.TestCase):
         # NEW-USDT should NOT have been opened
         self.assertNotIn("NEW-USDT", self.bot.open_positions)
 
+    def test_risk_budget_caps_per_trade_allocation(self):
+        """Per-trade allocation should be capped to remaining risk budget."""
+        import config as cfg
+
+        # One open position with modest risk
+        self.bot.open_positions["OPEN-USDT"] = Position(
+            symbol="OPEN-USDT",
+            order_id="o1",
+            entry_price=100.0,
+            quantity=0.1,
+            cost_usdt=10.0,
+            stop_loss=98.5,  # 1.5% stop → risk = 0.15
+            take_profit=102.5,
+        )
+
+        buy_amounts: list[float] = []
+        original_buy = self.bot._place_market_buy
+
+        def _capture_buy(symbol, usdt_amount):
+            buy_amounts.append(usdt_amount)
+            return original_buy(symbol, usdt_amount)
+
+        with patch.object(cfg, "TRADING_PAIRS", ["NEW-USDT"]), \
+             patch.object(cfg, "MAX_OPEN_POSITIONS", 5), \
+             patch.object(cfg, "MAX_PORTFOLIO_HEAT", 0.001), \
+             patch.object(cfg, "STOP_LOSS_PCT", 0.015), \
+             patch.object(cfg, "PAPER_MODE", True):
+            self.bot.paper_balance = 1000.0
+            self.bot._usdt_balance = MagicMock(return_value=1000.0)
+            self.bot._fetch_indicators = MagicMock(return_value={
+                "rsi": 40, "ema_short": 2, "ema_long": 1,
+                "ema_short_prev": 0.9, "ema_long_prev": 1.0,
+                "close": 100.0, "volume": 1000,
+            })
+            self.bot._is_buy_signal = MagicMock(return_value=True)
+            self.bot._place_market_buy = MagicMock(side_effect=_capture_buy)
+            self.bot._scan_for_entries()
+
+        # The per-trade amount should be capped below the normal allocation
+        if buy_amounts:
+            normal_allocation = 1000.0 * cfg.TRADE_FRACTION
+            self.assertLess(buy_amounts[0], normal_allocation)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Slippage cap tests (bot)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBotSlippageCap(unittest.TestCase):
+    def setUp(self):
+        patcher = patch("config.PAPER_MODE", False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.bot = _make_bot()
+
+    def test_slippage_cap_rejects_entry(self):
+        """When slippage exceeds cap, _place_market_buy should return None."""
+        import config as cfg
+
+        self.bot.market_client.get_ticker.side_effect = [
+            {"price": "100.0"},   # initial ticker for price
+            {"price": "110.0"},   # fill ticker showing 10% slippage
+        ]
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "TEST-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"},
+        ]
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "order1"}
+        self.bot.trade_client.cancel_order.return_value = {}
+
+        with patch.object(cfg, "MAX_SLIPPAGE_PCT", 0.001):
+            pos = self.bot._place_market_buy("TEST-USDT", 50.0)
+
+        self.assertIsNone(pos)
+        self.bot.trade_client.cancel_order.assert_called_once_with("order1")
+
+    def test_slippage_check_handles_ticker_error_gracefully(self):
+        """When fill ticker fetch fails, the order should still succeed."""
+        import config as cfg
+
+        self.bot.market_client.get_ticker.side_effect = [
+            {"price": "100.0"},   # initial ticker
+            Exception("timeout"),  # fill ticker fails
+        ]
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "TEST-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"},
+        ]
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "order1"}
+
+        with patch.object(cfg, "MAX_SLIPPAGE_PCT", 0.001):
+            pos = self.bot._place_market_buy("TEST-USDT", 50.0)
+
+        # Order should succeed despite ticker error
+        self.assertIsNotNone(pos)
+
+    def test_slippage_within_cap_allows_entry(self):
+        """When slippage is within cap, position should be created."""
+        import config as cfg
+
+        self.bot.market_client.get_ticker.side_effect = [
+            {"price": "100.0"},   # initial ticker
+            {"price": "100.01"},  # fill ticker — 0.01% slippage
+        ]
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "TEST-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"},
+        ]
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "order1"}
+
+        with patch.object(cfg, "MAX_SLIPPAGE_PCT", 0.01):
+            pos = self.bot._place_market_buy("TEST-USDT", 50.0)
+
+        self.assertIsNotNone(pos)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Limit order tests (bot)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBotLimitOrders(unittest.TestCase):
+    def setUp(self):
+        patcher = patch("config.PAPER_MODE", False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher2 = patch("config.USE_LIMIT_ORDERS", True)
+        patcher2.start()
+        self.addCleanup(patcher2.stop)
+        patcher3 = patch("config.MAX_SLIPPAGE_PCT", 0)
+        patcher3.start()
+        self.addCleanup(patcher3.stop)
+        self.bot = _make_bot()
+
+    def test_limit_order_filled_creates_position(self):
+        """Filled limit order should create a position with fill data."""
+        self.bot.market_client.get_ticker.return_value = {"price": "100.0"}
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "TEST-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"},
+        ]
+        self.bot.trade_client.create_limit_order.return_value = {"orderId": "limit1"}
+        self.bot.trade_client.get_order.return_value = {
+            "dealSize": "0.5", "dealFunds": "50.0",
+        }
+
+        pos = self.bot._place_market_buy("TEST-USDT", 50.0)
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.order_id, "limit1")
+        self.assertAlmostEqual(pos.quantity, 0.5)
+
+    def test_limit_order_unfilled_returns_none(self):
+        """Unfilled limit order should not create a position."""
+        self.bot.market_client.get_ticker.return_value = {"price": "100.0"}
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "TEST-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"},
+        ]
+        self.bot.trade_client.create_limit_order.return_value = {"orderId": "limit1"}
+        self.bot.trade_client.get_order.return_value = {
+            "dealSize": "0", "dealFunds": "0",
+        }
+
+        pos = self.bot._place_market_buy("TEST-USDT", 50.0)
+        self.assertIsNone(pos)
+
+    def test_limit_order_failure_falls_back_to_market(self):
+        """Failed limit order should fall back to market order."""
+        self.bot.market_client.get_ticker.return_value = {"price": "100.0"}
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "TEST-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"},
+        ]
+        self.bot.trade_client.create_limit_order.side_effect = Exception("limit failed")
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "market1"}
+
+        pos = self.bot._place_market_buy("TEST-USDT", 50.0)
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.order_id, "market1")
+        self.bot.trade_client.create_market_order.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
