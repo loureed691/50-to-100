@@ -328,6 +328,10 @@ class TestLiveModeBuyCost(unittest.TestCase):
     so that position cost reflects qty rounding."""
 
     def setUp(self):
+        # Force live mode regardless of environment configuration to keep tests hermetic
+        patcher = patch("config.PAPER_MODE", False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.bot = _make_bot()
 
     def test_cost_reflects_qty_rounding(self):
@@ -379,6 +383,10 @@ class TestLiveModeSell(unittest.TestCase):
     but the subsequent ticker fetch fails."""
 
     def setUp(self):
+        # Force live mode regardless of environment configuration to keep tests hermetic
+        patcher = patch("config.PAPER_MODE", False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.bot = _make_bot()
         self.pos = Position(
             symbol="ETH-USDT",
