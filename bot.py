@@ -152,8 +152,6 @@ class KuCoinBot:
             secret=config.API_SECRET,
             passphrase=config.API_PASSPHRASE,
         )
-        if config.SANDBOX:
-            kw["url"] = "https://openapi-sandbox.kucoin.com"
 
         self.market_client = Market(**kw)
         self.trade_client = Trade(**kw)
