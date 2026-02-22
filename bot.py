@@ -411,6 +411,14 @@ class KuCoinBot:
             elif price >= pos.take_profit:
                 if self._place_market_sell(pos, reason="take-profit"):
                     to_close.append(symbol)
+            else:
+                pnl = pos.unrealised_pnl(price)
+                pct = pos.unrealised_pct(price) * 100
+                log.info(
+                    "%sHOLD %-15s  price=%.4f  SL=%.4f  TP=%.4f  pnl=%+.4f USDT (%+.2f%%)",
+                    "[PAPER] " if config.PAPER_MODE else "",
+                    symbol, price, pos.stop_loss, pos.take_profit, pnl, pct,
+                )
 
         for symbol in to_close:
             del self.open_positions[symbol]
@@ -447,7 +455,10 @@ class KuCoinBot:
                 candidates.append(symbol)
 
         if not candidates:
+            log.debug("No buy signals found this cycle (%d pairs scanned)", len(config.TRADING_PAIRS))
             return
+
+        log.info("Buy candidates this cycle: %s", candidates)
 
         trade_count = min(available_slots, len(candidates))
         usdt_per_trade = (balance * config.TRADE_FRACTION) / trade_count
@@ -480,11 +491,21 @@ class KuCoinBot:
         win_rate = (
             self.winning_trades / self.total_trades * 100 if self.total_trades else 0
         )
+        open_pos = len(self.open_positions)
         log.info(
-            "── Stats ──  equity=%.2f USDT  trades=%d  win_rate=%.1f%%  "
-            "elapsed=%.1fh  target=%.2f USDT",
-            equity, self.total_trades, win_rate, elapsed, config.TARGET_CAPITAL_USDT,
+            "── Stats ──  equity=%.2f USDT  completed_trades=%d  open_positions=%d  "
+            "win_rate=%.1f%%  elapsed=%.1fh  target=%.2f USDT",
+            equity, self.total_trades, open_pos, win_rate, elapsed,
+            config.TARGET_CAPITAL_USDT,
         )
+        if config.PAPER_MODE and open_pos > 0:
+            unrealised = equity - self.paper_balance
+            log.info(
+                "[PAPER] cash=%.2f USDT  unrealised_positions=%.2f USDT  symbols=%s",
+                self.paper_balance,
+                unrealised,
+                list(self.open_positions.keys()),
+            )
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 

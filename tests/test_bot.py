@@ -574,5 +574,177 @@ class TestPaperModeSell(unittest.TestCase):
         self.assertAlmostEqual(self.bot.paper_balance, 505.0)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging / visibility tests (fixes for "equity growing without seeing trades")
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestLogStatsOpenPositions(unittest.TestCase):
+    """_log_stats must include open_positions count so the user can correlate
+    equity growth with held positions even when completed_trades is still 0."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+
+    def test_stats_include_open_positions_count(self):
+        """completed_trades=0 but open_positions shows held positions."""
+        pos = Position(
+            symbol="BTC-USDT",
+            order_id="o1",
+            entry_price=40000.0,
+            quantity=0.001,
+            cost_usdt=40.0,
+            stop_loss=39400.0,
+            take_profit=41000.0,
+        )
+        self.bot.open_positions["BTC-USDT"] = pos
+
+        with self.assertLogs("bot", level="INFO") as cm:
+            self.bot._log_stats(equity=40.5)
+
+        # Stats line must include open_positions=1
+        stats_lines = [l for l in cm.output if "Stats" in l]
+        self.assertTrue(stats_lines, "Expected a Stats log line")
+        self.assertIn("open_positions=1", stats_lines[0])
+
+    def test_stats_open_positions_zero_when_no_positions(self):
+        with self.assertLogs("bot", level="INFO") as cm:
+            self.bot._log_stats(equity=50.0)
+
+        stats_lines = [l for l in cm.output if "Stats" in l]
+        self.assertIn("open_positions=0", stats_lines[0])
+
+
+class TestLogStatsPaperBreakdown(unittest.TestCase):
+    """In paper mode with open positions, _log_stats must emit a second line
+    showing cash and unrealised position values so the user can see how equity
+    is composed."""
+
+    def setUp(self):
+        self.bot = _make_paper_bot()
+
+    def test_paper_breakdown_logged_when_positions_open(self):
+        import config as cfg
+        pos = Position(
+            symbol="ETH-USDT",
+            order_id="paper-1",
+            entry_price=200.0,
+            quantity=0.5,
+            cost_usdt=100.0,
+            stop_loss=197.0,
+            take_profit=205.0,
+        )
+        self.bot.open_positions["ETH-USDT"] = pos
+        self.bot.paper_balance = 400.0
+
+        with patch.object(cfg, "PAPER_MODE", True), \
+             self.assertLogs("bot", level="INFO") as cm:
+            # equity = 505 (400 cash + 105 unrealised: 0.5 qty × 210 current price)
+            self.bot._log_stats(equity=505.0)
+
+        paper_lines = [l for l in cm.output if "[PAPER]" in l and "cash=" in l]
+        self.assertTrue(paper_lines, "Expected a [PAPER] cash breakdown log line")
+        self.assertIn("cash=400.00", paper_lines[0])
+        self.assertIn("ETH-USDT", paper_lines[0])
+
+    def test_paper_breakdown_not_logged_when_no_positions(self):
+        import config as cfg
+        self.bot.paper_balance = 50.0
+
+        with patch.object(cfg, "PAPER_MODE", True), \
+             self.assertLogs("bot", level="INFO") as cm:
+            self.bot._log_stats(equity=50.0)
+
+        paper_lines = [l for l in cm.output if "[PAPER]" in l and "cash=" in l]
+        self.assertEqual(len(paper_lines), 0)
+
+
+class TestManageOpenPositionsHoldLog(unittest.TestCase):
+    """Positions within SL/TP range must emit a HOLD log so the user can see
+    the bot is actively monitoring them each cycle."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+
+    def test_hold_log_emitted_when_position_within_range(self):
+        pos = Position(
+            symbol="BTC-USDT",
+            order_id="o1",
+            entry_price=40000.0,
+            quantity=1.0,
+            cost_usdt=40000.0,
+            stop_loss=39400.0,
+            take_profit=41000.0,
+        )
+        self.bot.open_positions["BTC-USDT"] = pos
+        # Price within range → no close, HOLD log expected
+        self.bot.market_client.get_ticker.return_value = {"price": "40200.0"}
+
+        with self.assertLogs("bot", level="INFO") as cm:
+            self.bot._manage_open_positions()
+
+        hold_lines = [l for l in cm.output if "HOLD" in l]
+        self.assertTrue(hold_lines, "Expected a HOLD log line for in-range position")
+        self.assertIn("BTC-USDT", hold_lines[0])
+
+    def test_no_hold_log_when_position_closed_by_take_profit(self):
+        pos = Position(
+            symbol="BTC-USDT",
+            order_id="o1",
+            entry_price=40000.0,
+            quantity=1.0,
+            cost_usdt=40000.0,
+            stop_loss=39400.0,
+            take_profit=41000.0,
+        )
+        self.bot.open_positions["BTC-USDT"] = pos
+        # Price above take-profit → position closed, no HOLD log
+        self.bot.market_client.get_ticker.return_value = {"price": "41500.0"}
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "o2"}
+
+        with self.assertLogs("bot", level="INFO") as cm:
+            self.bot._manage_open_positions()
+
+        hold_lines = [l for l in cm.output if "HOLD" in l]
+        self.assertEqual(len(hold_lines), 0)
+
+
+class TestScanForEntriesCandidateLog(unittest.TestCase):
+    """When buy candidates are found, an INFO log must be emitted so the user
+    can see the bot is actively looking for entries."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+
+    def test_info_log_emitted_when_candidates_found(self):
+        import config as cfg
+        with patch.object(cfg, "TRADING_PAIRS", ["BTC-USDT"]), \
+             patch.object(cfg, "MAX_OPEN_POSITIONS", 3), \
+             patch.object(cfg, "TRADE_FRACTION", 0.95), \
+             patch.object(cfg, "MIN_TRADE_BALANCE_USDT", 1.0):
+            self.bot._usdt_balance = MagicMock(return_value=50.0)
+            self.bot._fetch_indicators = MagicMock(
+                return_value={"rsi": 40, "ema_short": 2, "ema_long": 1}
+            )
+            self.bot._is_buy_signal = MagicMock(return_value=True)
+            self.bot._place_market_buy = MagicMock(
+                return_value=Position(
+                    symbol="BTC-USDT",
+                    order_id="o1",
+                    entry_price=100.0,
+                    quantity=1.0,
+                    cost_usdt=100.0,
+                    stop_loss=98.5,
+                    take_profit=102.5,
+                )
+            )
+
+            with self.assertLogs("bot", level="INFO") as cm:
+                self.bot._scan_for_entries()
+
+        candidate_lines = [l for l in cm.output if "candidates" in l.lower()]
+        self.assertTrue(candidate_lines, "Expected a buy-candidates INFO log line")
+        self.assertIn("BTC-USDT", candidate_lines[0])
+
+
 if __name__ == "__main__":
     unittest.main()
