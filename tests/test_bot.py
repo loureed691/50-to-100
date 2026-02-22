@@ -3,6 +3,7 @@ Unit tests for the KuCoin trading bot (indicator helpers and bot logic).
 No live API calls are made; all KuCoin clients are mocked.
 """
 
+import importlib
 import sys
 import types
 import unittest
@@ -160,6 +161,36 @@ def _make_bot() -> KuCoinBot:
     bot.trade_client = MagicMock()
     bot.user_client = MagicMock()
     return bot
+
+
+class TestBotSandboxInit(unittest.TestCase):
+    def test_sandbox_uses_url_not_is_sandbox(self):
+        """Initialising with SANDBOX=True must not raise TypeError."""
+        calls = []
+
+        class CapturingMock:
+            def __init__(self, **kwargs):
+                calls.append(kwargs)
+
+        with patch("bot.Market", CapturingMock), \
+             patch("bot.Trade", CapturingMock), \
+             patch("bot.User", CapturingMock), \
+             patch.dict(
+                 "os.environ",
+                 {
+                     "KUCOIN_API_KEY": "k",
+                     "KUCOIN_API_SECRET": "s",
+                     "KUCOIN_API_PASSPHRASE": "p",
+                     "KUCOIN_SANDBOX": "true",
+                 },
+             ):
+            import config as cfg
+            importlib.reload(cfg)
+            bot = KuCoinBot()
+
+        for kw in calls:
+            self.assertNotIn("is_sandbox", kw, "is_sandbox must not be passed to the SDK")
+            self.assertEqual(kw.get("url"), "https://openapi-sandbox.kucoin.com")
 
 
 class TestBotRoundQty(unittest.TestCase):
