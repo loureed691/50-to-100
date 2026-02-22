@@ -18,8 +18,8 @@ kucoin_mod.client = kucoin_client_mod
 sys.modules["kucoin"] = kucoin_mod
 sys.modules["kucoin.client"] = kucoin_client_mod
 
-import numpy as np
-import pandas as pd
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
 # Patch config credentials so the bot doesn't raise on import
 with patch.dict(
@@ -357,7 +357,7 @@ class TestBotManagePositions(unittest.TestCase):
         self.assertNotIn("BTC-USDT", self.bot.open_positions)
 
     def test_holds_within_range(self):
-        pos = self._add_position("BTC-USDT", 40000.0)
+        self._add_position("BTC-USDT", 40000.0)
         # Price within range
         self.bot.market_client.get_ticker.return_value = {"price": "40100.0"}
         self.bot._manage_open_positions()
@@ -602,7 +602,7 @@ class TestLogStatsOpenPositions(unittest.TestCase):
             self.bot._log_stats(equity=40.5)
 
         # Stats line must include open_positions=1
-        stats_lines = [l for l in cm.output if "Stats" in l]
+        stats_lines = [line for line in cm.output if "Stats" in line]
         self.assertTrue(stats_lines, "Expected a Stats log line")
         self.assertIn("open_positions=1", stats_lines[0])
 
@@ -610,7 +610,7 @@ class TestLogStatsOpenPositions(unittest.TestCase):
         with self.assertLogs("bot", level="INFO") as cm:
             self.bot._log_stats(equity=50.0)
 
-        stats_lines = [l for l in cm.output if "Stats" in l]
+        stats_lines = [line for line in cm.output if "Stats" in line]
         self.assertIn("open_positions=0", stats_lines[0])
 
 
@@ -641,7 +641,7 @@ class TestLogStatsPaperBreakdown(unittest.TestCase):
             # equity = 505 (400 cash + 105 unrealised: 0.5 qty × 210 current price)
             self.bot._log_stats(equity=505.0)
 
-        paper_lines = [l for l in cm.output if "[PAPER]" in l and "cash=" in l]
+        paper_lines = [line for line in cm.output if "[PAPER]" in line and "cash=" in line]
         self.assertTrue(paper_lines, "Expected a [PAPER] cash breakdown log line")
         self.assertIn("cash=400.00", paper_lines[0])
         self.assertIn("ETH-USDT", paper_lines[0])
@@ -654,7 +654,7 @@ class TestLogStatsPaperBreakdown(unittest.TestCase):
              self.assertLogs("bot", level="INFO") as cm:
             self.bot._log_stats(equity=50.0)
 
-        paper_lines = [l for l in cm.output if "[PAPER]" in l and "cash=" in l]
+        paper_lines = [line for line in cm.output if "[PAPER]" in line and "cash=" in line]
         self.assertEqual(len(paper_lines), 0)
 
 
@@ -682,7 +682,7 @@ class TestManageOpenPositionsHoldLog(unittest.TestCase):
         with self.assertLogs("bot", level="INFO") as cm:
             self.bot._manage_open_positions()
 
-        hold_lines = [l for l in cm.output if "HOLD" in l]
+        hold_lines = [line for line in cm.output if "HOLD" in line]
         self.assertTrue(hold_lines, "Expected a HOLD log line for in-range position")
         self.assertIn("BTC-USDT", hold_lines[0])
 
@@ -704,7 +704,7 @@ class TestManageOpenPositionsHoldLog(unittest.TestCase):
         with self.assertLogs("bot", level="INFO") as cm:
             self.bot._manage_open_positions()
 
-        hold_lines = [l for l in cm.output if "HOLD" in l]
+        hold_lines = [line for line in cm.output if "HOLD" in line]
         self.assertEqual(len(hold_lines), 0)
 
 
@@ -741,7 +741,7 @@ class TestScanForEntriesCandidateLog(unittest.TestCase):
             with self.assertLogs("bot", level="INFO") as cm:
                 self.bot._scan_for_entries()
 
-        candidate_lines = [l for l in cm.output if "candidates" in l.lower()]
+        candidate_lines = [line for line in cm.output if "candidates" in line.lower()]
         self.assertTrue(candidate_lines, "Expected a buy-candidates INFO log line")
         self.assertIn("BTC-USDT", candidate_lines[0])
 

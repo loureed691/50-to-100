@@ -11,6 +11,21 @@ single trading day by riding high-momentum setups across multiple USDT pairs.
 
 ---
 
+## What's working now
+
+- [x] RSI(14) + EMA-9/21 crossover signal detection on 5-minute candles
+- [x] Automated position sizing (configurable fraction of available balance)
+- [x] Hard stop-loss and take-profit per position
+- [x] Consecutive-loss circuit breaker with cool-down
+- [x] Equity floor emergency halt
+- [x] Paper mode — real market data, simulated orders, no real funds at risk
+- [x] All configuration via environment variables (`.env` supported)
+- [x] 52 unit tests (all passing, no network calls)
+- [x] CI pipeline (GitHub Actions: lint + tests on every push)
+- [x] Structured logging to stdout and file
+
+---
+
 ## Strategy
 
 | Component | Detail |
@@ -28,11 +43,12 @@ single trading day by riding high-momentum setups across multiple USDT pairs.
 ## Requirements
 
 * Python 3.10+
-* A KuCoin account with **API credentials** (API key, secret, passphrase) — required for live trading; optional when running in **paper mode** (market data endpoints are public)
+* A KuCoin account with **API credentials** (API key, secret, passphrase) — required for live
+  trading; optional when running in **paper mode** (market data endpoints are public)
 
 ---
 
-## Setup
+## Quick start
 
 ```bash
 # 1. Clone the repository
@@ -40,64 +56,61 @@ git clone https://github.com/loureed691/50-to-100.git
 cd 50-to-100
 
 # 2. Install dependencies
-pip install -r requirements.txt
+make install
+# or: pip install -r requirements.txt
 
-# 3a. Paper mode — no credentials needed, orders are simulated
-export PAPER_MODE=true
-python bot.py
+# 3. Configure (copy the example and edit)
+cp .env.example .env
+# Edit .env — set PAPER_MODE=true for simulation, or add real API keys for live trading
 
-# --- OR ---
+# 4. Run (paper mode — no real funds at risk)
+make dev
+# or: PAPER_MODE=true python bot.py
 
-# 3b. Live trading — export your KuCoin API credentials
-export KUCOIN_API_KEY="your-api-key"
-export KUCOIN_API_SECRET="your-api-secret"
-export KUCOIN_API_PASSPHRASE="your-passphrase"
-
-# 4. (Optional) Test against the KuCoin Sandbox first
-export KUCOIN_SANDBOX=true
-
-# 5. Start the bot
-python bot.py
-```
-
-Alternatively, create a `.env` file in the project root (never commit it):
-
-```
-# For paper mode (credentials optional)
-PAPER_MODE=true
-
-# For live trading
-KUCOIN_API_KEY=your-api-key
-KUCOIN_API_SECRET=your-api-secret
-KUCOIN_API_PASSPHRASE=your-passphrase
-KUCOIN_SANDBOX=false
+# 5. Run tests
+make test
+# or: python -m pytest tests/ -v
 ```
 
 ---
 
 ## Configuration
 
-All parameters can be tuned via environment variables or by editing `config.py`.
+Copy `.env.example` to `.env` and adjust the values.  All parameters can also be set
+via environment variables or by editing `config.py`.  **Never commit `.env`.**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KUCOIN_API_KEY` | — | KuCoin API key (required for live trading) |
 | `KUCOIN_API_SECRET` | — | KuCoin API secret (required for live trading) |
 | `KUCOIN_API_PASSPHRASE` | — | KuCoin API passphrase (required for live trading) |
-| `KUCOIN_SANDBOX` | `false` | Use sandbox environment |
 | `PAPER_MODE` | `false` | Simulate orders without sending them to KuCoin (real market data, no real trades) |
-| `INITIAL_CAPITAL` | `50.0` | Starting USDT amount |
-| `TARGET_CAPITAL_USDT` | `10000.0` | Profit target (bot stops when reached) |
+| `INITIAL_CAPITAL` | `50.0` | Starting USDT amount (used as paper balance in paper mode) |
+| `TARGET_CAPITAL_USDT` | `10000.0` | Profit target — bot stops when equity reaches this value |
 | `TRADE_FRACTION` | `0.95` | Fraction of balance used per trade batch |
-| `STOP_LOSS_PCT` | `0.015` | Stop-loss as a fraction of entry price |
-| `TAKE_PROFIT_PCT` | `0.025` | Take-profit as a fraction of entry price |
-| `TRADING_PAIRS` | BTC,ETH,SOL,… | Comma-separated list of symbols |
+| `STOP_LOSS_PCT` | `0.015` | Stop-loss as a fraction of entry price (1.5 %) |
+| `TAKE_PROFIT_PCT` | `0.025` | Take-profit as a fraction of entry price (2.5 %) |
+| `TRADING_PAIRS` | BTC,ETH,SOL,… | Comma-separated list of symbols to scan |
 | `KLINE_INTERVAL` | `5min` | Candle interval for signal generation |
 | `POLL_INTERVAL_SECONDS` | `30` | Main loop frequency (seconds) |
 | `MAX_OPEN_POSITIONS` | `3` | Maximum concurrent open positions |
 | `EQUITY_FLOOR_USDT` | `10.0` | Emergency halt if equity drops below this |
 | `MAX_CONSECUTIVE_LOSSES` | `5` | Trigger cool-down after N losses in a row |
 | `COOLDOWN_SECONDS` | `300` | Cool-down duration in seconds |
+| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `LOG_FILE` | `trading_bot.log` | Path to the log file |
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `make install` | Install Python dependencies |
+| `make dev` | Install deps and run bot in paper mode |
+| `make test` | Run lint (ruff) + full unit test suite |
+| `make lint` | Run ruff linter only |
+| `make fmt` | Auto-fix safe lint issues and format code |
 
 ---
 
@@ -105,22 +118,50 @@ All parameters can be tuned via environment variables or by editing `config.py`.
 
 ```
 50-to-100/
-├── bot.py           # Main bot (strategy, order management, main loop)
+├── bot.py           # Main bot: strategy, order management, main loop
 ├── config.py        # All configuration loaded from environment variables
 ├── requirements.txt # Python dependencies
-├── tests/
-│   └── test_bot.py  # Unit tests (no live API calls)
-└── README.md
+├── Makefile         # Developer shortcuts (install / dev / test / lint)
+├── .env.example     # Environment variable template (copy to .env)
+├── CHANGELOG.md     # Release notes
+├── SECURITY.md      # Vulnerability reporting and threat model
+├── .github/
+│   └── workflows/
+│       └── ci.yml   # GitHub Actions CI (lint + tests)
+└── tests/
+    └── test_bot.py  # Unit tests (no live API calls)
 ```
 
 ---
 
-## Running the tests
+## CI
 
-```bash
-pip install pytest
-python -m pytest tests/ -v
-```
+Every push and pull request runs the GitHub Actions CI pipeline:
+
+1. Install dependencies
+2. Lint with `ruff`
+3. Run all unit tests with `pytest`
+
+Status badge: [![CI](https://github.com/loureed691/50-to-100/actions/workflows/ci.yml/badge.svg)](https://github.com/loureed691/50-to-100/actions/workflows/ci.yml)
+
+---
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the vulnerability reporting process and threat model.
+
+---
+
+## Major changes
+
+| Change | Reason |
+|--------|--------|
+| `.env.example` added | Documents all env vars; enables one-step configuration from a fresh clone |
+| `Makefile` added | Single-command `make dev` / `make test` / `make lint` — removes friction for new contributors |
+| `.github/workflows/ci.yml` added | Catches regressions automatically on every push across Python 3.10/3.11/3.12 |
+| `SECURITY.md` added | Provides responsible disclosure process and documents the threat model |
+| `CHANGELOG.md` added | Tracks notable changes following Keep a Changelog format |
+| Lint errors fixed (`tests/test_bot.py`) | Resolves 10 `ruff` warnings (E402, F841, E741) so `make test` passes cleanly |
 
 ---
 
