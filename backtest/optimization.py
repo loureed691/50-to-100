@@ -1,7 +1,7 @@
 """
-Walk-forward optimisation and Monte Carlo validation.
+Walk-forward optimization and Monte Carlo validation.
 
-Provides conservative parameter optimisation with out-of-sample validation
+Provides conservative parameter optimization with out-of-sample validation
 to guard against overfitting.
 """
 
@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Walk-forward optimisation
+# Walk-forward optimization
 # ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass

@@ -1,5 +1,5 @@
 """
-Tests for walk-forward optimisation and Monte Carlo validation.
+Tests for walk-forward optimization and Monte Carlo validation.
 """
 
 import unittest
