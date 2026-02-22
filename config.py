@@ -76,6 +76,11 @@ MAX_CONSECUTIVE_LOSSES = int(os.getenv("MAX_CONSECUTIVE_LOSSES", "5"))
 # Cool-down period (seconds) after hitting MAX_CONSECUTIVE_LOSSES
 COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", "300"))
 
+# ── Paper Trading ─────────────────────────────────────────────────────────────
+# When enabled, the bot uses real market data but simulates order execution
+# without placing any real orders.  API credentials are optional in this mode.
+PAPER_MODE = os.getenv("PAPER_MODE", "false").lower() in ("true", "1", "yes")
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE", "trading_bot.log")

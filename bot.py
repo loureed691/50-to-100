@@ -162,7 +162,14 @@ class KuCoinBot:
         self.session_start: datetime = datetime.now(timezone.utc)
         self.total_trades: int = 0
         self.winning_trades: int = 0
+        self.paper_balance: float = config.INITIAL_CAPITAL_USDT  # used in paper mode
 
+        if config.PAPER_MODE:
+            log.info(
+                "⚙️  PAPER MODE enabled — orders are simulated.  "
+                "Starting paper balance: %.2f USDT",
+                self.paper_balance,
+            )
         log.info("Bot initialised.  Target: %.2f USDT → %.2f USDT",
                  config.INITIAL_CAPITAL_USDT, config.TARGET_CAPITAL_USDT)
 
@@ -170,6 +177,8 @@ class KuCoinBot:
 
     @staticmethod
     def _validate_config() -> None:
+        if config.PAPER_MODE:
+            return  # credentials not required for paper trading
         missing = [
             name
             for name, val in (
@@ -188,6 +197,8 @@ class KuCoinBot:
 
     def _usdt_balance(self) -> float:
         """Return available USDT in the trading account."""
+        if config.PAPER_MODE:
+            return self.paper_balance
         try:
             accounts = self.user_client.get_account_list(currency="USDT", account_type="trade")
             for acct in accounts:
@@ -304,12 +315,16 @@ class KuCoinBot:
                 log.debug("%s: qty %.8f below minSize %.8f — skipping", symbol, qty, min_size)
                 return None
 
-            order = self.trade_client.create_market_order(
-                symbol=symbol,
-                side="buy",
-                size=str(qty),
-            )
-            order_id = order.get("orderId", "unknown")
+            if config.PAPER_MODE:
+                order_id = f"paper-{symbol}-{int(datetime.now(timezone.utc).timestamp() * 1e9)}"
+                self.paper_balance -= usdt_amount
+            else:
+                order = self.trade_client.create_market_order(
+                    symbol=symbol,
+                    side="buy",
+                    size=str(qty),
+                )
+                order_id = order.get("orderId", "unknown")
             stop = price * (1 - config.STOP_LOSS_PCT)
             take = price * (1 + config.TAKE_PROFIT_PCT)
 
@@ -323,7 +338,8 @@ class KuCoinBot:
                 take_profit=take,
             )
             log.info(
-                "BUY  %-15s  qty=%.6f  price=%.4f  SL=%.4f  TP=%.4f",
+                "%sBUY  %-15s  qty=%.6f  price=%.4f  SL=%.4f  TP=%.4f",
+                "[PAPER] " if config.PAPER_MODE else "",
                 symbol, qty, price, stop, take,
             )
             return pos
@@ -334,18 +350,23 @@ class KuCoinBot:
     def _place_market_sell(self, pos: Position, reason: str = "signal") -> bool:
         """Close an open position with a market sell order."""
         try:
-            order = self.trade_client.create_market_order(
-                symbol=pos.symbol,
-                side="sell",
-                size=str(pos.quantity),
-            )
+            if not config.PAPER_MODE:
+                self.trade_client.create_market_order(
+                    symbol=pos.symbol,
+                    side="sell",
+                    size=str(pos.quantity),
+                )
             ticker = self.market_client.get_ticker(pos.symbol)
             exit_price = float(ticker.get("price", pos.entry_price))
             pnl = pos.unrealised_pnl(exit_price)
             pct = pos.unrealised_pct(exit_price) * 100
 
+            if config.PAPER_MODE:
+                self.paper_balance += exit_price * pos.quantity
+
             log.info(
-                "SELL %-15s  reason=%-8s  pnl=%+.4f USDT (%+.2f%%)",
+                "%sSELL %-15s  reason=%-8s  pnl=%+.4f USDT (%+.2f%%)",
+                "[PAPER] " if config.PAPER_MODE else "",
                 pos.symbol, reason, pnl, pct,
             )
             self.total_trades += 1

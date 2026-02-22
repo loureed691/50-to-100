@@ -75,6 +75,7 @@ All parameters can be tuned via environment variables or by editing `config.py`.
 | `KUCOIN_API_SECRET` | — | KuCoin API secret (required) |
 | `KUCOIN_API_PASSPHRASE` | — | KuCoin API passphrase (required) |
 | `KUCOIN_SANDBOX` | `false` | Use sandbox environment |
+| `PAPER_MODE` | `false` | Simulate orders without sending them to KuCoin (real market data, no real trades) |
 | `INITIAL_CAPITAL` | `50.0` | Starting USDT amount |
 | `TARGET_CAPITAL_USDT` | `10000.0` | Profit target (bot stops when reached) |
 | `TRADE_FRACTION` | `0.95` | Fraction of balance used per trade batch |
