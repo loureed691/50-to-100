@@ -71,6 +71,16 @@ class StrategyParams:
     use_cooldown: bool = False
     cooldown_bars: int = 6           # bars to wait after consecutive losses
     max_consecutive_losses: int = 3
+    # ── Regime detection & confidence ──
+    use_regime_filter: bool = False
+    adx_period: int = 14
+    adx_trend_thresh: float = 25.0   # ADX > this ⇒ trending regime
+    use_confidence: bool = False
+    min_confidence: float = 0.5      # 0-1; skip signals below this score
+    # ── Risk budget ──
+    max_portfolio_heat: float = 0.06  # max 6% total capital at risk across all open positions
+    # ── Slippage cap ──
+    max_slippage_pct: float = 0.002   # reject fills > 0.2% worse than expected
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -123,6 +133,81 @@ def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) ->
     return tr.ewm(span=period, adjust=False).mean()
 
 
+def _adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Average Directional Index — measures trend strength (0-100)."""
+    prev_high = high.shift(1)
+    prev_low = low.shift(1)
+    prev_close = close.shift(1)
+
+    plus_dm = (high - prev_high).clip(lower=0)
+    minus_dm = (prev_low - low).clip(lower=0)
+    # Zero out the smaller of the two
+    plus_dm = plus_dm.where(plus_dm > minus_dm, 0.0)
+    minus_dm = minus_dm.where(minus_dm > plus_dm, 0.0)
+
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    atr_smooth = tr.ewm(span=period, adjust=False).mean()
+    plus_di = 100 * plus_dm.ewm(span=period, adjust=False).mean() / atr_smooth
+    minus_di = 100 * minus_dm.ewm(span=period, adjust=False).mean() / atr_smooth
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    dx = dx.fillna(0.0)
+    adx = dx.ewm(span=period, adjust=False).mean()
+    return adx
+
+
+def compute_confidence(
+    rsi: float, ema_short: float, ema_long: float,
+    close: float, trend_ema: float | None = None,
+    adx: float | None = None, volume: float | None = None,
+    avg_volume: float | None = None,
+) -> float:
+    """Return a 0-1 confidence score for a buy signal.
+
+    Components (equally weighted):
+      1. RSI strength — how far RSI has recovered above oversold (35-50 range → 0-1)
+      2. EMA separation — magnitude of short-EMA over long-EMA (0-1 clipped)
+      3. Trend alignment — close above trend EMA (0 or 1) if available
+      4. ADX trend strength — higher ADX = stronger trend (0-1 scaled)
+      5. Volume confirmation — above-average volume = 1, else scaled
+    """
+    components: list[float] = []
+
+    # 1. RSI strength (35→0, 50→1, capped at 1)
+    rsi_score = min(max((rsi - 35.0) / 15.0, 0.0), 1.0)
+    components.append(rsi_score)
+
+    # 2. EMA separation (fraction of price)
+    if close > 0:
+        sep = (ema_short - ema_long) / close
+        ema_score = min(max(sep / 0.005, 0.0), 1.0)  # 0.5% sep → 1.0
+    else:
+        ema_score = 0.0
+    components.append(ema_score)
+
+    # 3. Trend alignment
+    if trend_ema is not None:
+        components.append(1.0 if close > trend_ema else 0.0)
+
+    # 4. ADX strength (20→0, 40→1)
+    if adx is not None:
+        adx_score = min(max((adx - 20.0) / 20.0, 0.0), 1.0)
+        components.append(adx_score)
+
+    # 5. Volume confirmation
+    if volume is not None and avg_volume is not None and avg_volume > 0:
+        vol_score = min(volume / avg_volume, 1.0)
+        components.append(vol_score)
+
+    return sum(components) / len(components) if components else 0.0
+
+
 def compute_indicators(df: pd.DataFrame, params: StrategyParams) -> pd.DataFrame:
     """Add all indicator columns to the dataframe."""
     close = df["close"]
@@ -136,6 +221,10 @@ def compute_indicators(df: pd.DataFrame, params: StrategyParams) -> pd.DataFrame
         df["trend_ema"] = _ema(close, params.trend_ema_period)
     if params.use_atr_sizing or params.use_trailing_stop:
         df["atr"] = _atr(df["high"], df["low"], close, params.atr_period)
+    if params.use_regime_filter:
+        df["adx"] = _adx(df["high"], df["low"], close, params.adx_period)
+    if params.use_confidence:
+        df["avg_volume"] = df["volume"].rolling(20, min_periods=1).mean()
     return df
 
 
@@ -320,15 +409,50 @@ def run_backtest(
                     if params.take_profit_pct < round_trip_cost * params.min_edge_mult:
                         continue
 
+                # Regime filter: skip ranging markets (low ADX)
+                if params.use_regime_filter and "adx" in idf.columns:
+                    adx_val = idf["adx"].iloc[prev]
+                    if pd.notna(adx_val) and adx_val < params.adx_trend_thresh:
+                        continue
+
+                # Confidence scoring: compute and filter by minimum threshold
+                if params.use_confidence:
+                    trend_val = idf["trend_ema"].iloc[prev] if "trend_ema" in idf.columns else None
+                    adx_val = idf["adx"].iloc[prev] if "adx" in idf.columns else None
+                    vol_val = idf["volume"].iloc[prev] if "volume" in idf.columns else None
+                    avg_vol = idf["avg_volume"].iloc[prev] if "avg_volume" in idf.columns else None
+                    conf = compute_confidence(
+                        rsi=rsi_val, ema_short=ema_s, ema_long=ema_l,
+                        close=idf["close"].iloc[prev],
+                        trend_ema=trend_val, adx=adx_val,
+                        volume=vol_val, avg_volume=avg_vol,
+                    )
+                    if conf < params.min_confidence:
+                        continue
+
                 candidates.append(sym)
 
             trade_count = min(available_slots, len(candidates))
             if trade_count > 0:
-                usdt_per_trade = (capital * params.trade_fraction) / trade_count
+                # ── Risk budget check ─────────────────────────────────
+                # Compute current portfolio heat (total risk from open positions)
+                current_heat = 0.0
+                for _s, _p in positions.items():
+                    current_heat += (_p.entry_price - _p.stop_loss) * _p.quantity
+                remaining_budget = max(0.0, capital * params.max_portfolio_heat - current_heat)
+                if remaining_budget <= 0:
+                    trade_count = 0  # risk budget exhausted
+
+                usdt_per_trade = (capital * params.trade_fraction) / max(trade_count, 1)
                 for sym in candidates[:trade_count]:
                     idf = indicator_data[sym]
                     entry_price = idf["open"].iloc[i]  # execute at next bar open
                     effective_entry = entry_price * cost.buy_cost_factor()
+
+                    # Slippage cap: reject if effective cost exceeds threshold
+                    slippage_impact = (effective_entry - entry_price) / entry_price if entry_price > 0 else 0.0
+                    if slippage_impact > params.max_slippage_pct:
+                        continue
 
                     # ATR-based sizing
                     if params.use_atr_sizing and "atr" in idf.columns:
