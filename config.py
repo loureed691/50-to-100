@@ -16,9 +16,6 @@ API_KEY = os.getenv("KUCOIN_API_KEY", "")
 API_SECRET = os.getenv("KUCOIN_API_SECRET", "")
 API_PASSPHRASE = os.getenv("KUCOIN_API_PASSPHRASE", "")
 
-# Set to True to use the KuCoin Sandbox environment for testing
-SANDBOX = os.getenv("KUCOIN_SANDBOX", "false").lower() == "true"
-
 # ── Capital & Risk Settings ───────────────────────────────────────────────────
 # Starting capital in USDT
 INITIAL_CAPITAL_USDT = float(os.getenv("INITIAL_CAPITAL", "50.0"))
