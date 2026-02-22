@@ -162,6 +162,35 @@ def _make_bot() -> KuCoinBot:
     return bot
 
 
+class TestBotSandboxInit(unittest.TestCase):
+    def test_sandbox_uses_url_not_is_sandbox(self):
+        """Initialising with SANDBOX=True must not raise TypeError."""
+        calls = []
+
+        class CapturingMock:
+            def __init__(self, **kwargs):
+                calls.append(kwargs)
+
+        import config as cfg
+        with patch("bot.Market", CapturingMock), \
+             patch("bot.Trade", CapturingMock), \
+             patch("bot.User", CapturingMock), \
+             patch.object(cfg, "SANDBOX", True), \
+             patch.object(cfg, "API_KEY", "k"), \
+             patch.object(cfg, "API_SECRET", "s"), \
+             patch.object(cfg, "API_PASSPHRASE", "p"):
+            bot = KuCoinBot()  # noqa: F841
+
+        self.assertEqual(
+            len(calls),
+            3,
+            "SDK client constructors should be called for Market, Trade and User",
+        )
+        for kw in calls:
+            self.assertNotIn("is_sandbox", kw, "is_sandbox must not be passed to the SDK")
+            self.assertEqual(kw.get("url"), "https://openapi-sandbox.kucoin.com")
+
+
 class TestBotRoundQty(unittest.TestCase):
     def setUp(self):
         self.bot = _make_bot()
