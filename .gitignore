@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Secrets – never commit these
+.env
+*.key
+
+# Bot runtime artefacts
+trading_bot.log
+*.log
+
+# Editor / OS artefacts
+.DS_Store
+.idea/
+.vscode/
+*.swp
