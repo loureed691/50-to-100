@@ -344,7 +344,7 @@ class TestLiveModeBuyCost(unittest.TestCase):
         self.assertAlmostEqual(pos.cost_usdt, pos.quantity * pos.entry_price)
 
     def test_cost_differs_from_usdt_amount_on_rounding(self):
-        # price=300.0, usdt_amount=100.0 → raw_qty=0.3333, rounded_qty=0.333
+        # price=300.0, usdt_amount=100.0 → raw_qty=100/300=0.33333…, rounded to 0.333
         # actual_cost should be 0.333 * 300.0 = 99.9, NOT 100.0
         self.bot.market_client.get_ticker.return_value = {"price": "300.0"}
         self.bot.market_client.get_symbol_list.return_value = [
@@ -408,12 +408,12 @@ class TestLiveModeSell(unittest.TestCase):
         self.assertEqual(self.bot.total_trades, 0)
 
     def test_sell_uses_entry_price_fallback_on_ticker_error(self):
-        # Sell succeeds, ticker fails → PnL computed with entry_price (0% pnl)
+        # Sell succeeds, ticker fails → PnL computed with entry_price (0 pnl, counted as non-win)
         self.bot.trade_client.create_market_order.return_value = {"orderId": "s1"}
         self.bot.market_client.get_ticker.side_effect = Exception("timeout")
 
         self.bot._place_market_sell(self.pos, reason="manual")
-        # Entry price = exit price → no gain → counted as a loss (pnl = 0)
+        # pnl=0 is not positive, so consecutive_losses is incremented
         self.assertEqual(self.bot.consecutive_losses, 1)
 
     def test_sell_normal_success(self):
