@@ -23,6 +23,7 @@ results.  Never risk money you cannot afford to lose.
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -51,12 +52,21 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
+# Ensure stdout/stderr use UTF-8 so Unicode characters (e.g. →) in log messages
+# are encoded correctly on platforms that default to a narrow encoding (e.g.
+# Windows cp1252).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass  # best-effort; logging will still work, just may fall back to replacement chars
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL, logging.INFO),
     format="%(asctime)s  %(levelname)-8s  %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(config.LOG_FILE),
+        logging.FileHandler(config.LOG_FILE, encoding="utf-8"),
     ],
 )
 log = logging.getLogger(__name__)
