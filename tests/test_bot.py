@@ -993,6 +993,7 @@ class TestBotRiskBudget(unittest.TestCase):
              patch.object(cfg, "MAX_OPEN_POSITIONS", 5), \
              patch.object(cfg, "MAX_PORTFOLIO_HEAT", 0.001), \
              patch.object(cfg, "STOP_LOSS_PCT", 0.015), \
+             patch.object(cfg, "TRADE_FRACTION", 0.95), \
              patch.object(cfg, "PAPER_MODE", True):
             self.bot.paper_balance = 1000.0
             self.bot._usdt_balance = MagicMock(return_value=1000.0)
@@ -1007,7 +1008,7 @@ class TestBotRiskBudget(unittest.TestCase):
 
         # The per-trade amount should be capped below the normal allocation
         if buy_amounts:
-            normal_allocation = 1000.0 * cfg.TRADE_FRACTION
+            normal_allocation = 1000.0 * 0.95
             self.assertLess(buy_amounts[0], normal_allocation)
 
 

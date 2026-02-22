@@ -400,9 +400,10 @@ class KuCoinBot:
                     order_id = order.get("orderId", "unknown")
                     # Verify fill before creating a position — limit orders
                     # are not guaranteed to execute immediately.
+                    _LIMIT_FILL_CHECK_DELAY = 0.5  # seconds to wait before checking fill
                     if order_id and order_id != "unknown":
                         try:
-                            time.sleep(0.5)
+                            time.sleep(_LIMIT_FILL_CHECK_DELAY)
                             order_info = self.trade_client.get_order(order_id)
                             filled_size = float(order_info.get("dealSize", 0) or 0)
                             filled_funds = float(order_info.get("dealFunds", 0) or 0)
@@ -442,6 +443,7 @@ class KuCoinBot:
                 actual_cost = qty * price
 
             # Slippage cap: reject entry if fill price deviates excessively
+            # (only applicable to live mode — paper mode has no real slippage)
             if config.MAX_SLIPPAGE_PCT > 0 and not config.PAPER_MODE:
                 try:
                     fill_ticker = self.market_client.get_ticker(symbol)
@@ -452,18 +454,14 @@ class KuCoinBot:
                             "%s: slippage %.4f%% exceeds cap %.4f%% — rejecting entry",
                             symbol, slippage * 100, config.MAX_SLIPPAGE_PCT * 100,
                         )
-                        # Attempt to undo the order
-                        if config.PAPER_MODE:
-                            self.paper_balance += actual_cost
-                        else:
-                            try:
-                                self.trade_client.cancel_order(order_id)
-                                log.info("Cancelled order %s for %s due to slippage", order_id, symbol)
-                            except Exception as cancel_exc:
-                                log.error(
-                                    "Failed to cancel order %s for %s after slippage cap exceeded: %s",
-                                    order_id, symbol, cancel_exc,
-                                )
+                        try:
+                            self.trade_client.cancel_order(order_id)
+                            log.info("Cancelled order %s for %s due to slippage", order_id, symbol)
+                        except Exception as cancel_exc:
+                            log.error(
+                                "Failed to cancel order %s for %s after slippage cap exceeded: %s",
+                                order_id, symbol, cancel_exc,
+                            )
                         return None
                 except Exception as exc:
                     log.warning(
