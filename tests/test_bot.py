@@ -99,6 +99,14 @@ class TestRsi(unittest.TestCase):
         rsi = _rsi(prices, 14)
         self.assertEqual(len(rsi), len(prices))
 
+    def test_rsi_100_on_monotonic_increase(self):
+        # A strictly increasing series has no losses → RSI should be 100,
+        # not NaN (regression guard for the zero-division fix).
+        prices = pd.Series([float(x) for x in range(100, 140)])
+        rsi = _rsi(prices, 14)
+        valid = rsi.dropna()
+        self.assertTrue((valid == 100.0).all())
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Position tests

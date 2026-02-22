@@ -76,7 +76,7 @@ All parameters can be tuned via environment variables or by editing `config.py`.
 | `KUCOIN_API_PASSPHRASE` | — | KuCoin API passphrase (required) |
 | `KUCOIN_SANDBOX` | `false` | Use sandbox environment |
 | `INITIAL_CAPITAL` | `50.0` | Starting USDT amount |
-| `TARGET_CAPITAL` | `10000.0` | Profit target (bot stops when reached) |
+| `TARGET_CAPITAL_USDT` | `10000.0` | Profit target (bot stops when reached) |
 | `TRADE_FRACTION` | `0.95` | Fraction of balance used per trade batch |
 | `STOP_LOSS_PCT` | `0.015` | Stop-loss as a fraction of entry price |
 | `TAKE_PROFIT_PCT` | `0.025` | Take-profit as a fraction of entry price |

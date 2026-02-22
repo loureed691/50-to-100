@@ -31,14 +31,16 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-import config
-
 # ── Optional dotenv support ───────────────────────────────────────────────────
+# Load .env *before* importing config so env vars are available when config
+# reads them at module level.
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
+
+import config
 
 # ── KuCoin SDK ────────────────────────────────────────────────────────────────
 try:
@@ -90,8 +92,15 @@ def _rsi(series: pd.Series, period: int = 14) -> pd.Series:
     loss = -delta.clip(upper=0)
     avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
     avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    # Compute RS; suppress divide-by-zero warnings — handled explicitly below.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    # When there are gains but no losses over the lookback window, standard
+    # RSI is 100 (pure uptrend).  Avoid NaN propagating into signal logic.
+    no_loss_mask = (avg_loss == 0) & (avg_gain > 0)
+    rsi = rsi.where(~no_loss_mask, 100.0)
+    return rsi
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -454,6 +463,7 @@ class KuCoinBot:
                         "❌  Equity (%.2f USDT) below floor (%.2f USDT) — halting.",
                         equity, config.EQUITY_FLOOR_USDT,
                     )
+                    self._close_all_positions("equity-floor")
                     break
 
                 # ── Circuit breaker ───────────────────────────────────────────
