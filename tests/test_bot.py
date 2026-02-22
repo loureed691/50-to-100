@@ -323,6 +323,109 @@ class TestBotPlaceMarketBuy(unittest.TestCase):
         self.assertIsNone(pos)
 
 
+class TestLiveModeBuyCost(unittest.TestCase):
+    """Live-mode buy must compute actual_cost from qty * price (not raw usdt_amount)
+    so that position cost reflects qty rounding."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+
+    def test_cost_reflects_qty_rounding(self):
+        # price=200.0, usdt_amount=100.0 → raw_qty=0.5, rounded_qty=0.5
+        # actual_cost should be 0.5 * 200.0 = 100.0
+        self.bot.market_client.get_ticker.return_value = {"price": "200.0"}
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "ETH-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"}
+        ]
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "o1"}
+
+        pos = self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.assertIsNotNone(pos)
+        self.assertAlmostEqual(pos.cost_usdt, pos.quantity * pos.entry_price)
+
+    def test_cost_differs_from_usdt_amount_on_rounding(self):
+        # price=300.0, usdt_amount=100.0 → raw_qty=0.3333, rounded_qty=0.333
+        # actual_cost should be 0.333 * 300.0 = 99.9, NOT 100.0
+        self.bot.market_client.get_ticker.return_value = {"price": "300.0"}
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "ETH-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"}
+        ]
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "o1"}
+
+        pos = self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.assertIsNotNone(pos)
+        expected_cost = 0.333 * 300.0  # 99.9
+        self.assertAlmostEqual(pos.cost_usdt, expected_cost, places=2)
+        # Must NOT be the raw usdt_amount
+        self.assertNotAlmostEqual(pos.cost_usdt, 100.0, places=2)
+
+    def test_missing_order_id_warns(self):
+        self.bot.market_client.get_ticker.return_value = {"price": "200.0"}
+        self.bot.market_client.get_symbol_list.return_value = [
+            {"symbol": "ETH-USDT", "baseIncrement": "0.001", "baseMinSize": "0.001"}
+        ]
+        self.bot.trade_client.create_market_order.return_value = {}
+
+        with self.assertLogs("bot", level="WARNING") as cm:
+            pos = self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.order_id, "unknown")
+        warning_lines = [line for line in cm.output if "no orderId" in line]
+        self.assertTrue(warning_lines, "Expected a warning about missing orderId")
+
+
+class TestLiveModeSell(unittest.TestCase):
+    """Live-mode sell must still report success when the sell order succeeds
+    but the subsequent ticker fetch fails."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.pos = Position(
+            symbol="ETH-USDT",
+            order_id="o1",
+            entry_price=200.0,
+            quantity=0.5,
+            cost_usdt=100.0,
+            stop_loss=197.0,
+            take_profit=205.0,
+        )
+
+    def test_sell_returns_true_when_ticker_fails_after_sell(self):
+        # Sell order succeeds, but ticker fetch fails
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "s1"}
+        self.bot.market_client.get_ticker.side_effect = Exception("ticker timeout")
+
+        result = self.bot._place_market_sell(self.pos, reason="stop-loss")
+        self.assertTrue(result, "Sell must succeed even if ticker fetch fails")
+        self.assertEqual(self.bot.total_trades, 1)
+
+    def test_sell_returns_false_when_order_fails(self):
+        # Sell order itself fails
+        self.bot.trade_client.create_market_order.side_effect = Exception("exchange down")
+
+        result = self.bot._place_market_sell(self.pos, reason="stop-loss")
+        self.assertFalse(result, "Sell must fail when order placement fails")
+        self.assertEqual(self.bot.total_trades, 0)
+
+    def test_sell_uses_entry_price_fallback_on_ticker_error(self):
+        # Sell succeeds, ticker fails → PnL computed with entry_price (0% pnl)
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "s1"}
+        self.bot.market_client.get_ticker.side_effect = Exception("timeout")
+
+        self.bot._place_market_sell(self.pos, reason="manual")
+        # Entry price = exit price → no gain → counted as a loss (pnl = 0)
+        self.assertEqual(self.bot.consecutive_losses, 1)
+
+    def test_sell_normal_success(self):
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "s1"}
+        self.bot.market_client.get_ticker.return_value = {"price": "210.0"}
+
+        result = self.bot._place_market_sell(self.pos, reason="take-profit")
+        self.assertTrue(result)
+        self.assertEqual(self.bot.winning_trades, 1)
+        self.assertEqual(self.bot.consecutive_losses, 0)
+
+
 class TestBotManagePositions(unittest.TestCase):
     def setUp(self):
         self.bot = _make_bot()
