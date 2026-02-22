@@ -232,7 +232,7 @@ class TestBacktestEngine(unittest.TestCase):
         data = self._get_data()
         zero_cost = CostModel(maker_fee=0, taker_fee=0, slippage=0, spread=0)
         result = run_backtest(data, StrategyParams(), zero_cost, initial_capital=50.0)
-        self.assertAlmostEqual(result.total_fees, 0.0)
+        self.assertAlmostEqual(result.total_execution_costs, 0.0)
 
     def test_trade_log_populated(self):
         data = self._get_data(days=90)

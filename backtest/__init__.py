@@ -6,5 +6,5 @@ spread to evaluate strategy performance with realistic cost assumptions.
 
 Usage
 -----
-    python -m backtest --pairs BTC-USDT,ETH-USDT --from 2024-01-01 --to 2024-06-01
+    python -m backtest --pairs BTC-USDT,ETH-USDT --days 180 --seed 42 --capital 1000
 """

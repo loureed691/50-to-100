@@ -16,8 +16,9 @@
 
 ### D) ATR-Based Position Sizing
 - Position size targets 1% account risk per trade based on ATR-derived stop distance.
-  This keeps risk constant regardless of volatility, and never exceeds the baseline's
-  per-trade capital allocation.
+  The stop distance uses `max(stop_loss_pct × price, ATR)` so sizing reflects actual
+  volatility. This keeps risk constant regardless of volatility, and never exceeds the
+  baseline's per-trade capital allocation.
 
 ### E) Trailing Stop to Breakeven
 - After price moves in favor by 2×ATR, the stop-loss is moved to breakeven. This
@@ -34,47 +35,47 @@ python -m backtest --mode improved --pairs BTC-USDT,ETH-USDT,SOL-USDT --days 180
 
 | Metric | Value |
 |--------|-------|
-| Net Profit | -29.3381 USDT |
-| CAGR | -0.62% |
-| Sharpe Ratio | -0.0868 |
-| Sortino Ratio | -0.0355 |
-| Max Drawdown | 75.76% |
-| 95% VaR | 0.0000 |
-| 95% CVaR | 0.0057 |
-| Worst Day | -4.32% |
-| Worst Week | -4.73% |
-| Win Rate | 44.50% |
-| Profit Factor | 0.9225 |
-| Avg Trade | -0.0206 USDT |
-| Trade Count | 1427 |
+| Net Profit | -16.8438 USDT |
+| CAGR | -0.29% |
+| Sharpe Ratio | -1.9892 |
+| Sortino Ratio | -2.5258 |
+| Max Drawdown | 48.98% |
+| 95% VaR | 0.0365 |
+| 95% CVaR | 0.0538 |
+| Worst Day | -7.05% |
+| Worst Week | -21.66% |
+| Win Rate | 44.46% |
+| Profit Factor | 0.9176 |
+| Avg Trade | -0.0118 USDT |
+| Trade Count | 1426 |
 
 ## Comparison: Baseline vs Improved
 
 | Metric | Baseline | Improved | Change |
 |--------|----------|----------|--------|
-| Net Profit | -49.01 USDT | -29.34 USDT | +40.1% better |
-| CAGR | -2.72% | -0.62% | +77.2% better |
-| Sharpe | -0.2743 | -0.0868 | +68.3% better |
-| Sortino | -0.1238 | -0.0355 | +71.3% better |
-| Max Drawdown | 98.77% | 75.76% | ✅ 23.3% lower risk |
-| 95% CVaR | 0.0105 | 0.0057 | ✅ 45.7% lower tail risk |
-| Worst Day | -6.16% | -4.32% | ✅ 29.9% improved |
-| Worst Week | -7.99% | -4.73% | ✅ 40.8% improved |
-| Win Rate | 41.10% | 44.50% | +3.4pp |
-| Profit Factor | 0.8677 | 0.9225 | +6.3% |
-| Trade Count | 1810 | 1427 | -21.2% fewer trades |
+| Net Profit | -49.01 USDT | -16.84 USDT | +65.6% better |
+| CAGR | -2.72% | -0.29% | +89.3% better |
+| Sharpe | -4.9367 | -1.9892 | +59.7% better |
+| Sortino | -6.5565 | -2.5258 | +61.5% better |
+| Max Drawdown | 98.77% | 48.98% | ✅ 50.4% lower risk |
+| 95% CVaR | 0.1837 | 0.0538 | ✅ 70.7% lower tail risk |
+| Worst Day | -25.87% | -7.05% | ✅ 72.8% improved |
+| Worst Week | -77.82% | -21.66% | ✅ 72.2% improved |
+| Win Rate | 41.10% | 44.46% | +3.4pp |
+| Profit Factor | 0.8677 | 0.9176 | +5.7% |
+| Trade Count | 1810 | 1426 | -21.2% fewer trades |
 
 ## Risk Constraint Verification
 
 | Constraint | Baseline | Improved | Status |
 |------------|----------|----------|--------|
-| Max Drawdown ≤ baseline | 98.77% | 75.76% | ✅ PASS |
-| 95% CVaR ≤ baseline | 0.0105 | 0.0057 | ✅ PASS |
-| Worst Day ≤ baseline | -6.16% | -4.32% | ✅ PASS |
-| Worst Week ≤ baseline | -7.99% | -4.73% | ✅ PASS |
+| Max Drawdown ≤ baseline | 98.77% | 48.98% | ✅ PASS |
+| 95% CVaR ≤ baseline | 0.1837 | 0.0538 | ✅ PASS |
+| Worst Day ≤ baseline | -25.87% | -7.05% | ✅ PASS |
+| Worst Week ≤ baseline | -77.82% | -21.66% | ✅ PASS |
 | Leverage unchanged | None | None | ✅ PASS |
 | Max positions ≤ baseline | 3 | 3 | ✅ PASS |
-| Trading frequency ≤ baseline | 1810 | 1427 | ✅ PASS |
+| Trading frequency ≤ baseline | 1810 | 1426 | ✅ PASS |
 
 ## Summary
 

@@ -69,9 +69,28 @@ def walk_forward(
     -------
     list[WalkForwardFold]
     """
+    if not data:
+        log.warning("No data provided to walk_forward; returning empty results.")
+        return []
+
+    if n_folds < 1:
+        raise ValueError(f"n_folds must be >= 1, got {n_folds!r}")
+
     # Determine total data length (use the shortest symbol)
     min_len = min(len(df) for df in data.values())
+    if min_len == 0:
+        log.warning("All provided data frames are empty; returning empty results.")
+        return []
+
     fold_size = min_len // n_folds
+    if fold_size <= 0:
+        log.warning(
+            "Computed non-positive fold size (%d) from min_len=%d and n_folds=%d; "
+            "returning empty walk-forward results.",
+            fold_size, min_len, n_folds,
+        )
+        return []
+
     if fold_size < 100:
         log.warning("Fold size (%d) is very small; results may be unreliable", fold_size)
 
@@ -159,9 +178,8 @@ def monte_carlo_trades(
     seed: int = 42,
     initial_capital: float = 50.0,
 ) -> MonteCarloResult:
-    """Bootstrap resample trade P&Ls to estimate confidence intervals.
-
-    Shuffles the order of trades to simulate different sequencing outcomes.
+    """Bootstrap-resamples trade sequences (with replacement) to simulate
+    different sequencing outcomes and P&L distributions.
 
     Parameters
     ----------

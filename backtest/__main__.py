@@ -59,7 +59,7 @@ def _format_report(metrics: dict, mode: str, result: BacktestResult) -> str:
         f"| Profit Factor | {metrics['profit_factor']:.4f} |",
         f"| Avg Trade | {metrics['avg_trade']:.4f} USDT |",
         f"| Trade Count | {metrics['trade_count']} |",
-        f"| Total Fees | {result.total_fees:.4f} USDT |",
+        f"| Total Execution Costs | {result.total_execution_costs:.4f} USDT |",
         "",
     ]
     return "\n".join(lines)

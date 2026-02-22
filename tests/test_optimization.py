@@ -31,6 +31,15 @@ class TestWalkForward(unittest.TestCase):
         results = walk_forward(data, param_grid, CostModel(), n_folds=2)
         self.assertIn("rsi_oversold", results[0].best_params)
 
+    def test_empty_data_returns_empty(self):
+        results = walk_forward({}, {"rsi_oversold": [35.0]}, CostModel())
+        self.assertEqual(results, [])
+
+    def test_invalid_n_folds_raises(self):
+        data = self._get_data()
+        with self.assertRaises(ValueError):
+            walk_forward(data, {"rsi_oversold": [35.0]}, CostModel(), n_folds=0)
+
 
 class TestMonteCarlo(unittest.TestCase):
     def test_with_trades(self):

@@ -21,13 +21,13 @@ python -m backtest --mode baseline --pairs BTC-USDT,ETH-USDT,SOL-USDT --days 180
 |--------|-------|
 | Net Profit | -49.0074 USDT |
 | CAGR | -2.72% |
-| Sharpe Ratio | -0.2743 |
-| Sortino Ratio | -0.1238 |
+| Sharpe Ratio | -4.9367 |
+| Sortino Ratio | -6.5565 |
 | Max Drawdown | 98.77% |
-| 95% VaR | 0.0000 |
-| 95% CVaR | 0.0105 |
-| Worst Day | -6.16% |
-| Worst Week | -7.99% |
+| 95% VaR | 0.1540 |
+| 95% CVaR | 0.1837 |
+| Worst Day | -25.87% |
+| Worst Week | -77.82% |
 | Win Rate | 41.10% |
 | Profit Factor | 0.8677 |
 | Avg Trade | -0.0271 USDT |

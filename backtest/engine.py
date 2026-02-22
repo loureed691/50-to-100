@@ -150,7 +150,7 @@ class BacktestResult:
     daily_returns: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     trade_pnls: list[float] = field(default_factory=list)
     trade_log: list[dict] = field(default_factory=list)
-    total_fees: float = 0.0
+    total_execution_costs: float = 0.0
 
 
 def run_backtest(
@@ -191,11 +191,13 @@ def run_backtest(
     capital = initial_capital
     positions: dict[str, _Position] = {}
     equity_values: list[float] = []
+    equity_timestamps: list = []
     trade_pnls: list[float] = []
     trade_log: list[dict] = []
-    total_fees: float = 0.0
+    total_execution_costs: float = 0.0
     consecutive_losses = 0
     cooldown_remaining = 0
+    sample_sym = next(iter(indicator_data))
 
     # Iterate bar by bar (use closed candles only → signal on bar i, execute on bar i+1)
     for i in range(1, min_len):
@@ -221,7 +223,7 @@ def run_backtest(
                 exit_price = pos.stop_loss * cost.sell_cost_factor()
                 pnl = (exit_price - pos.effective_entry) * pos.quantity
                 fee = abs(exit_price * pos.quantity) * (cost.taker_fee + cost.slippage)
-                total_fees += fee
+                total_execution_costs += fee
                 capital += pos.cost_usdt + pnl
                 trade_pnls.append(pnl)
                 trade_log.append({
@@ -240,7 +242,7 @@ def run_backtest(
                 exit_price = pos.take_profit * cost.sell_cost_factor()
                 pnl = (exit_price - pos.effective_entry) * pos.quantity
                 fee = abs(exit_price * pos.quantity) * (cost.taker_fee + cost.slippage)
-                total_fees += fee
+                total_execution_costs += fee
                 capital += pos.cost_usdt + pnl
                 trade_pnls.append(pnl)
                 trade_log.append({
@@ -257,16 +259,27 @@ def run_backtest(
         if params.use_cooldown and cooldown_remaining > 0:
             cooldown_remaining -= 1
             # Record equity even during cooldown
+            # Value open positions at estimated liquidation value, consistent
+            # with the sell-side cost model used for actual exits.
             pos_value = sum(
-                indicator_data[s]["close"].iloc[i] * p.quantity
+                indicator_data[s]["close"].iloc[i] * cost.sell_cost_factor() * p.quantity
                 for s, p in positions.items()
             )
             equity_values.append(capital + pos_value)
+            equity_timestamps.append(indicator_data[sample_sym]["timestamp"].iloc[i])
             continue
 
         if params.use_cooldown and consecutive_losses >= params.max_consecutive_losses:
             cooldown_remaining = params.cooldown_bars
             consecutive_losses = 0
+            # Start cooldown immediately: record equity and skip new entries
+            pos_value = sum(
+                indicator_data[s]["close"].iloc[i] * cost.sell_cost_factor() * p.quantity
+                for s, p in positions.items()
+            )
+            equity_values.append(capital + pos_value)
+            equity_timestamps.append(indicator_data[sample_sym]["timestamp"].iloc[i])
+            continue
 
         # ── Scan for entries (signals on bar i-1, execute on bar i) ───
         available_slots = params.max_open_positions - len(positions)
@@ -321,7 +334,10 @@ def run_backtest(
                     if params.use_atr_sizing and "atr" in idf.columns:
                         atr_val = idf["atr"].iloc[i - 1]
                         if atr_val > 0:
-                            stop_dist = params.stop_loss_pct * entry_price
+                            # Use ATR in the effective stop distance so risk-based
+                            # sizing reflects volatility; fall back to the
+                            # percent-based stop if larger.
+                            stop_dist = max(params.stop_loss_pct * entry_price, atr_val)
                             risk_amount = capital * params.risk_per_trade
                             qty_by_risk = risk_amount / stop_dist
                             qty_by_balance = usdt_per_trade / effective_entry
@@ -336,7 +352,7 @@ def run_backtest(
                         continue
 
                     fee = actual_cost * (cost.taker_fee + cost.slippage)
-                    total_fees += fee
+                    total_execution_costs += fee
                     capital -= actual_cost
 
                     stop = entry_price * (1 - params.stop_loss_pct)
@@ -354,11 +370,14 @@ def run_backtest(
                     )
 
         # ── Record equity ─────────────────────────────────────────────
+        # Value open positions at estimated liquidation value, consistent
+        # with the sell-side cost model used for actual exits.
         pos_value = sum(
-            indicator_data[s]["close"].iloc[i] * p.quantity
+            indicator_data[s]["close"].iloc[i] * cost.sell_cost_factor() * p.quantity
             for s, p in positions.items()
         )
         equity_values.append(capital + pos_value)
+        equity_timestamps.append(indicator_data[sample_sym]["timestamp"].iloc[i])
 
     # ── Close remaining positions at last bar close ───────────────────
     if positions:
@@ -376,12 +395,21 @@ def run_backtest(
         positions.clear()
 
     equity_series = pd.Series(equity_values, dtype=float)
-    daily_rets = equity_series.pct_change().dropna()
+
+    # Build a datetime-indexed equity series and resample to daily so that
+    # Sharpe/Sortino/VaR and "worst day/week" semantics are correct.
+    if equity_timestamps:
+        ts_index = pd.DatetimeIndex(equity_timestamps)
+        equity_ts = pd.Series(equity_values, index=ts_index, dtype=float)
+        daily_equity = equity_ts.resample("1D").last().ffill()
+        daily_rets = daily_equity.pct_change().dropna()
+    else:
+        daily_rets = equity_series.pct_change().dropna()
 
     return BacktestResult(
         equity_curve=equity_series,
         daily_returns=daily_rets,
         trade_pnls=trade_pnls,
         trade_log=trade_log,
-        total_fees=total_fees,
+        total_execution_costs=total_execution_costs,
     )
