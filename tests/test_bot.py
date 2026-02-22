@@ -421,8 +421,15 @@ class TestBotScanForEntries(unittest.TestCase):
             self.bot._scan_for_entries()
 
         self.assertEqual(self.bot._place_market_buy.call_count, 2)
-        self.assertAlmostEqual(self.bot._place_market_buy.call_args_list[0].args[1], 23.75)
-        self.assertAlmostEqual(self.bot._place_market_buy.call_args_list[1].args[1], 23.75)
+        expected_usdt_per_trade = (50.0 * 0.95) / 2
+        self.assertAlmostEqual(
+            self.bot._place_market_buy.call_args_list[0].args[1],
+            expected_usdt_per_trade,
+        )
+        self.assertAlmostEqual(
+            self.bot._place_market_buy.call_args_list[1].args[1],
+            expected_usdt_per_trade,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
