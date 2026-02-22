@@ -337,7 +337,9 @@ class KuCoinBot:
                     size=str(qty),
                 )
                 order_id = order.get("orderId", "unknown")
-                actual_cost = usdt_amount
+                if order_id == "unknown":
+                    log.warning("Buy order for %s returned no orderId — tracking may be unreliable", symbol)
+                actual_cost = qty * price
             stop = price * (1 - config.STOP_LOSS_PCT)
             take = price * (1 + config.TAKE_PROFIT_PCT)
 
@@ -369,29 +371,41 @@ class KuCoinBot:
                     side="sell",
                     size=str(pos.quantity),
                 )
-            ticker = self.market_client.get_ticker(pos.symbol)
-            exit_price = float(ticker.get("price", pos.entry_price))
-            pnl = pos.unrealised_pnl(exit_price)
-            pct = pos.unrealised_pct(exit_price) * 100
-
-            if config.PAPER_MODE:
-                self.paper_balance += exit_price * pos.quantity
-
-            log.info(
-                "%sSELL %-15s  reason=%-8s  pnl=%+.4f USDT (%+.2f%%)",
-                "[PAPER] " if config.PAPER_MODE else "",
-                pos.symbol, reason, pnl, pct,
-            )
-            self.total_trades += 1
-            if pnl > 0:
-                self.winning_trades += 1
-                self.consecutive_losses = 0
-            else:
-                self.consecutive_losses += 1
-            return True
         except Exception as exc:
             log.error("Sell order failed for %s: %s", pos.symbol, exc)
             return False
+
+        # Sell order succeeded — fetch exit price for PnL bookkeeping.
+        # If the ticker call fails we still report the sell as successful
+        # so the position is removed (it was already sold on the exchange).
+        exit_price = pos.entry_price  # fallback
+        try:
+            ticker = self.market_client.get_ticker(pos.symbol)
+            exit_price = float(ticker.get("price", pos.entry_price))
+        except Exception as exc:
+            log.warning(
+                "Could not fetch exit price for %s after sell — using entry price for PnL: %s",
+                pos.symbol, exc,
+            )
+
+        pnl = pos.unrealised_pnl(exit_price)
+        pct = pos.unrealised_pct(exit_price) * 100
+
+        if config.PAPER_MODE:
+            self.paper_balance += exit_price * pos.quantity
+
+        log.info(
+            "%sSELL %-15s  reason=%-8s  pnl=%+.4f USDT (%+.2f%%)",
+            "[PAPER] " if config.PAPER_MODE else "",
+            pos.symbol, reason, pnl, pct,
+        )
+        self.total_trades += 1
+        if pnl > 0:
+            self.winning_trades += 1
+            self.consecutive_losses = 0
+        else:
+            self.consecutive_losses += 1
+        return True
 
     # ── Position management loop ─────────────────────────────────────────────
 
