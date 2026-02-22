@@ -36,7 +36,10 @@ TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.025"))  # 2.5 %
 # List of symbols to scan for opportunities (KuCoin format: BASE-QUOTE)
 TRADING_PAIRS = os.getenv(
     "TRADING_PAIRS",
-    "BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,DOGE-USDT,ADA-USDT,AVAX-USDT",
+    "BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,DOGE-USDT,ADA-USDT,AVAX-USDT,"
+    "DOT-USDT,MATIC-USDT,LINK-USDT,LTC-USDT,UNI-USDT,ATOM-USDT,TRX-USDT,"
+    "NEAR-USDT,APT-USDT,OP-USDT,ARB-USDT,SUI-USDT,TON-USDT,SHIB-USDT,"
+    "BCH-USDT,FIL-USDT,INJ-USDT",
 ).split(",")
 
 # ── Strategy Parameters ───────────────────────────────────────────────────────
