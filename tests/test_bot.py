@@ -857,5 +857,116 @@ class TestScanForEntriesCandidateLog(unittest.TestCase):
         self.assertIn("BTC-USDT", candidate_lines[0])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Decimal precision tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDecimalPrecisionRoundQty(unittest.TestCase):
+    def setUp(self):
+        self.bot = _make_bot()
+
+    def test_decimal_rounding_truncates_correctly(self):
+        info = {"baseIncrement": "0.01"}
+        qty = self.bot._round_qty(1.999, info)
+        self.assertAlmostEqual(qty, 1.99, places=2)
+
+    def test_decimal_rounding_preserves_precision(self):
+        info = {"baseIncrement": "0.0001"}
+        qty = self.bot._round_qty(0.12345678, info)
+        self.assertAlmostEqual(qty, 0.1234, places=4)
+
+    def test_decimal_rounding_large_increment(self):
+        info = {"baseIncrement": "1"}
+        qty = self.bot._round_qty(5.9, info)
+        self.assertAlmostEqual(qty, 5.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Confidence scoring tests (bot)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBotConfidenceScoring(unittest.TestCase):
+    def setUp(self):
+        self.bot = _make_bot()
+
+    def test_compute_confidence_returns_float(self):
+        ind = {
+            "rsi": 45.0, "ema_short": 105.0, "ema_long": 100.0,
+            "close": 102.0,
+        }
+        conf = self.bot._compute_confidence(ind)
+        self.assertIsInstance(conf, float)
+        self.assertGreaterEqual(conf, 0.0)
+        self.assertLessEqual(conf, 1.0)
+
+    def test_high_confidence_signal(self):
+        ind = {
+            "rsi": 50.0, "ema_short": 110.0, "ema_long": 100.0,
+            "close": 105.0,
+        }
+        conf = self.bot._compute_confidence(ind)
+        self.assertGreater(conf, 0.5)
+
+    def test_confidence_filter_blocks_low_signal(self):
+        ind = {
+            "rsi": 36.0, "ema_short": 100.01, "ema_long": 100.0,
+            "ema_short_prev": 99.0, "ema_long_prev": 100.0,
+            "close": 100.0,
+        }
+        with patch.object(config, "MIN_CONFIDENCE", 0.9):
+            self.assertFalse(self.bot._is_buy_signal(ind))
+
+    def test_confidence_filter_allows_strong_signal(self):
+        ind = {
+            "rsi": 50.0, "ema_short": 110.0, "ema_long": 100.0,
+            "ema_short_prev": 99.0, "ema_long_prev": 100.0,
+            "close": 105.0,
+        }
+        with patch.object(config, "MIN_CONFIDENCE", 0.3):
+            self.assertTrue(self.bot._is_buy_signal(ind))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Risk budget tests (bot)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBotRiskBudget(unittest.TestCase):
+    def setUp(self):
+        self.bot = _make_bot()
+
+    def test_risk_budget_blocks_new_entries_when_exhausted(self):
+        """When portfolio heat exceeds budget, no new entries should open."""
+        import config as cfg
+
+        # Fill positions with wide stop-loss (high risk per position)
+        for i in range(2):
+            sym = f"RISK{i}-USDT"
+            self.bot.open_positions[sym] = Position(
+                symbol=sym,
+                order_id=f"o{i}",
+                entry_price=100.0,
+                quantity=1.0,
+                cost_usdt=100.0,
+                stop_loss=50.0,  # 50% stop = huge risk
+                take_profit=102.5,
+            )
+
+        with patch.object(cfg, "TRADING_PAIRS", ["NEW-USDT"]), \
+             patch.object(cfg, "MAX_OPEN_POSITIONS", 5), \
+             patch.object(cfg, "MAX_PORTFOLIO_HEAT", 0.01), \
+             patch.object(cfg, "PAPER_MODE", True):
+            self.bot._usdt_balance = MagicMock(return_value=100.0)
+            self.bot._fetch_indicators = MagicMock(return_value={
+                "rsi": 40, "ema_short": 2, "ema_long": 1,
+                "ema_short_prev": 0.9, "ema_long_prev": 1.0,
+                "close": 100.0, "volume": 1000,
+            })
+            self.bot._is_buy_signal = MagicMock(return_value=True)
+            self.bot._scan_for_entries()
+
+        # NEW-USDT should NOT have been opened
+        self.assertNotIn("NEW-USDT", self.bot.open_positions)
+
+
 if __name__ == "__main__":
     unittest.main()

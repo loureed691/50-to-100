@@ -29,3 +29,4 @@ test: install-dev ## Run the full test suite (lint + unit tests)
 verify: test ## Run lint + tests + a small backtest sample
 	$(PYTHON) -m backtest --mode baseline --days 30 --seed 42
 	$(PYTHON) -m backtest --mode improved --days 30 --seed 42
+	$(PYTHON) -m backtest --mode compare --days 30 --seed 42
