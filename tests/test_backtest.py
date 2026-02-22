@@ -12,9 +12,11 @@ from backtest.engine import (
     BacktestResult,
     CostModel,
     StrategyParams,
+    _adx,
     _atr,
     _ema,
     _rsi,
+    compute_confidence,
     compute_indicators,
     run_backtest,
 )
@@ -287,6 +289,170 @@ class TestBacktestCli(unittest.TestCase):
         metrics = main(["--mode", "improved", "--days", "30", "--seed", "42"])
         self.assertIn("sharpe", metrics)
         self.assertIn("max_drawdown", metrics)
+
+    def test_main_compare_returns_both(self):
+        from backtest.__main__ import main
+        result = main(["--mode", "compare", "--days", "30", "--seed", "42"])
+        self.assertIn("baseline", result)
+        self.assertIn("improved", result)
+        self.assertIn("sharpe", result["baseline"])
+        self.assertIn("sharpe", result["improved"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADX indicator tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestAdx(unittest.TestCase):
+    def test_adx_range(self):
+        df = generate_ohlcv("TEST", days=60, seed=42)
+        adx = _adx(df["high"], df["low"], df["close"], 14)
+        valid = adx.dropna()
+        self.assertTrue((valid >= 0).all())
+
+    def test_adx_length(self):
+        df = generate_ohlcv("TEST", days=30, seed=42)
+        adx = _adx(df["high"], df["low"], df["close"], 14)
+        self.assertEqual(len(adx), len(df))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Confidence scoring tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestComputeConfidence(unittest.TestCase):
+    def test_returns_float_between_0_and_1(self):
+        conf = compute_confidence(
+            rsi=42.0, ema_short=105.0, ema_long=100.0, close=102.0,
+        )
+        self.assertIsInstance(conf, float)
+        self.assertGreaterEqual(conf, 0.0)
+        self.assertLessEqual(conf, 1.0)
+
+    def test_high_rsi_high_separation_high_confidence(self):
+        conf = compute_confidence(
+            rsi=50.0, ema_short=110.0, ema_long=100.0, close=105.0,
+        )
+        self.assertGreater(conf, 0.5)
+
+    def test_low_rsi_low_confidence(self):
+        conf = compute_confidence(
+            rsi=35.0, ema_short=100.1, ema_long=100.0, close=100.0,
+        )
+        self.assertLess(conf, 0.5)
+
+    def test_with_trend_ema_aligned(self):
+        conf = compute_confidence(
+            rsi=45.0, ema_short=105.0, ema_long=100.0, close=110.0,
+            trend_ema=100.0,
+        )
+        self.assertGreater(conf, 0.3)
+
+    def test_with_trend_ema_misaligned(self):
+        conf_aligned = compute_confidence(
+            rsi=45.0, ema_short=105.0, ema_long=100.0, close=110.0,
+            trend_ema=100.0,
+        )
+        conf_misaligned = compute_confidence(
+            rsi=45.0, ema_short=105.0, ema_long=100.0, close=90.0,
+            trend_ema=100.0,
+        )
+        self.assertGreater(conf_aligned, conf_misaligned)
+
+    def test_with_adx(self):
+        conf_strong = compute_confidence(
+            rsi=45.0, ema_short=105.0, ema_long=100.0, close=102.0,
+            adx=40.0,
+        )
+        conf_weak = compute_confidence(
+            rsi=45.0, ema_short=105.0, ema_long=100.0, close=102.0,
+            adx=15.0,
+        )
+        self.assertGreater(conf_strong, conf_weak)
+
+    def test_with_volume(self):
+        conf_high_vol = compute_confidence(
+            rsi=45.0, ema_short=105.0, ema_long=100.0, close=102.0,
+            volume=2000.0, avg_volume=1000.0,
+        )
+        conf_low_vol = compute_confidence(
+            rsi=45.0, ema_short=105.0, ema_long=100.0, close=102.0,
+            volume=500.0, avg_volume=1000.0,
+        )
+        self.assertGreater(conf_high_vol, conf_low_vol)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Regime filter and risk budget engine tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRegimeFilter(unittest.TestCase):
+    def test_regime_filter_adds_adx_column(self):
+        df = generate_ohlcv("TEST", days=30, seed=42)
+        params = StrategyParams(use_regime_filter=True)
+        result = compute_indicators(df, params)
+        self.assertIn("adx", result.columns)
+
+    def test_regime_filter_reduces_trades(self):
+        """Regime filter should reduce or equal trade count vs baseline."""
+        data = {"TEST-USDT": generate_ohlcv("TEST-USDT", days=90, seed=42)}
+        baseline = run_backtest(data, StrategyParams(), CostModel(), initial_capital=50.0)
+        filtered = run_backtest(
+            data,
+            StrategyParams(use_regime_filter=True, adx_trend_thresh=25.0),
+            CostModel(),
+            initial_capital=50.0,
+        )
+        self.assertLessEqual(len(filtered.trade_pnls), len(baseline.trade_pnls))
+
+
+class TestConfidenceFilter(unittest.TestCase):
+    def test_confidence_filter_reduces_trades(self):
+        """Confidence filter should reduce or equal trade count."""
+        data = {"TEST-USDT": generate_ohlcv("TEST-USDT", days=90, seed=42)}
+        baseline = run_backtest(data, StrategyParams(), CostModel(), initial_capital=50.0)
+        filtered = run_backtest(
+            data,
+            StrategyParams(use_confidence=True, min_confidence=0.6),
+            CostModel(),
+            initial_capital=50.0,
+        )
+        self.assertLessEqual(len(filtered.trade_pnls), len(baseline.trade_pnls))
+
+    def test_confidence_adds_avg_volume_column(self):
+        df = generate_ohlcv("TEST", days=30, seed=42)
+        params = StrategyParams(use_confidence=True)
+        result = compute_indicators(df, params)
+        self.assertIn("avg_volume", result.columns)
+
+
+class TestRiskBudget(unittest.TestCase):
+    def test_tight_risk_budget_reduces_trades(self):
+        """Very tight risk budget should limit trade count."""
+        data = {"TEST-USDT": generate_ohlcv("TEST-USDT", days=90, seed=42)}
+        normal = run_backtest(
+            data, StrategyParams(max_portfolio_heat=1.0), CostModel(), initial_capital=50.0,
+        )
+        tight = run_backtest(
+            data, StrategyParams(max_portfolio_heat=0.001), CostModel(), initial_capital=50.0,
+        )
+        self.assertLessEqual(len(tight.trade_pnls), len(normal.trade_pnls))
+
+
+class TestSlippageCap(unittest.TestCase):
+    def test_zero_slippage_cap_blocks_high_cost_entries(self):
+        """With max_slippage_pct=0, high-cost models should block entries."""
+        data = {"TEST-USDT": generate_ohlcv("TEST-USDT", days=60, seed=42)}
+        # High-cost model with zero slippage tolerance
+        high_cost = CostModel(taker_fee=0.01, slippage=0.01, spread=0.01)
+        result = run_backtest(
+            data,
+            StrategyParams(max_slippage_pct=0.0),
+            high_cost,
+            initial_capital=50.0,
+        )
+        # Should have no trades since all entries exceed slippage cap
+        self.assertEqual(len(result.trade_pnls), 0)
 
 
 if __name__ == "__main__":

@@ -20,9 +20,18 @@ single trading day by riding high-momentum setups across multiple USDT pairs.
 - [x] Equity floor emergency halt
 - [x] Paper mode — real market data, simulated orders, no real funds at risk
 - [x] All configuration via environment variables (`.env` supported)
-- [x] 52 unit tests (all passing, no network calls)
+- [x] 137 unit tests (all passing, no network calls)
 - [x] CI pipeline (GitHub Actions: lint + tests on every push)
 - [x] Structured logging to stdout and file
+- [x] Regime detection (ADX-based) — filters out ranging markets
+- [x] Confidence scoring — 0-1 signal quality score for entry filtering
+- [x] Volatility-based position sizing with strict risk budgets (max portfolio heat)
+- [x] Slippage caps — reject fills exceeding configured deviation
+- [x] Decimal precision for quantity rounding
+- [x] Limit-order-first execution (falls back to market orders)
+- [x] Baseline-vs-improved comparison report (`python -m backtest --mode compare`)
+- [x] Walk-forward OOS optimization to prevent overfitting
+- [x] Monte Carlo trade resampling for robustness validation
 
 ---
 
@@ -31,10 +40,13 @@ single trading day by riding high-momentum setups across multiple USDT pairs.
 | Component | Detail |
 |-----------|--------|
 | Signal | RSI(14) recovery from oversold **+** EMA-9 crossing above EMA-21 |
+| Confidence | Multi-factor 0-1 score (RSI strength, EMA separation, trend alignment, ADX, volume) |
+| Regime filter | ADX-based — only trades in trending markets (ADX > 25) |
 | Time frame | 5-minute candles |
-| Position sizing | 95 % of available balance spread across current entry signals (≤ 3 concurrent positions) |
+| Position sizing | Volatility-based via ATR, capped by max portfolio heat (6% default) |
 | Stop-loss | −1.5 % from entry |
 | Take-profit | +2.5 % from entry |
+| Execution | Limit-order first (falls back to market); slippage cap at 0.2% |
 | Circuit-breaker | Auto-pauses after 5 consecutive losses (5-minute cool-down) |
 | Pairs | BTC, ETH, SOL, BNB, XRP, DOGE, ADA, AVAX vs USDT (configurable) |
 
@@ -97,6 +109,10 @@ via environment variables or by editing `config.py`.  **Never commit `.env`.**
 | `EQUITY_FLOOR_USDT` | `10.0` | Emergency halt if equity drops below this |
 | `MAX_CONSECUTIVE_LOSSES` | `5` | Trigger cool-down after N losses in a row |
 | `COOLDOWN_SECONDS` | `300` | Cool-down duration in seconds |
+| `MIN_CONFIDENCE` | `0.0` | Minimum signal confidence (0-1) to open a position (0 = disabled) |
+| `MAX_PORTFOLIO_HEAT` | `0.06` | Max fraction of capital at risk across all open positions |
+| `MAX_SLIPPAGE_PCT` | `0.002` | Reject entries when fill deviates more than 0.2 % from expected price |
+| `USE_LIMIT_ORDERS` | `false` | Prefer limit orders over market orders (falls back to market) |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FILE` | `trading_bot.log` | Path to the log file |
 
@@ -124,6 +140,7 @@ Tunable indicators and limits — see `.env.example` for exact defaults:
 | `make install-dev` | Install runtime + dev dependencies (`requirements-dev.txt`, includes ruff & pytest) |
 | `make dev` | Install dev deps and run bot in paper mode |
 | `make test` | Install dev deps, run lint (ruff) + full unit test suite |
+| `make verify` | Run lint + tests + baseline, improved, and compare backtests |
 | `make lint` | Run ruff linter only |
 | `make fmt` | Auto-fix safe lint issues and format code |
 
@@ -135,9 +152,17 @@ Tunable indicators and limits — see `.env.example` for exact defaults:
 50-to-100/
 ├── bot.py           # Main bot: strategy, order management, main loop
 ├── config.py        # All configuration loaded from environment variables
+├── backtest/        # Backtest & optimisation module
+│   ├── __init__.py
+│   ├── engine.py    # Simulation engine with regime detection, confidence scoring
+│   ├── __main__.py  # CLI: --mode baseline|improved|compare
+│   ├── data.py      # Synthetic OHLCV generation
+│   ├── metrics.py   # Risk/return metrics (Sharpe, Sortino, MDD, CVaR, …)
+│   └── optimization.py  # Walk-forward OOS & Monte Carlo
+├── reports/
 ├── requirements.txt     # Runtime Python dependencies
 ├── requirements-dev.txt # Dev dependencies (ruff, pytest)
-├── Makefile         # Developer shortcuts (install / dev / test / lint)
+├── Makefile         # Developer shortcuts (install / dev / test / lint / verify)
 ├── .env.example     # Environment variable template (copy to .env)
 ├── CHANGELOG.md     # Release notes
 ├── SECURITY.md      # Vulnerability reporting and threat model
@@ -145,8 +170,43 @@ Tunable indicators and limits — see `.env.example` for exact defaults:
 │   └── workflows/
 │       └── ci.yml   # GitHub Actions CI (lint + tests)
 └── tests/
-    └── test_bot.py  # Unit tests (no live API calls)
+    ├── test_bot.py          # Bot unit tests
+    ├── test_integration.py  # Full cycle integration tests
+    ├── test_backtest.py     # Backtest engine, metrics, CLI tests
+    └── test_optimization.py # Walk-forward & Monte Carlo tests
 ```
+
+---
+
+## Backtesting
+
+Run reproducible backtests using synthetic OHLCV data with realistic fee, slippage,
+and spread modelling:
+
+```bash
+# Baseline strategy
+python -m backtest --mode baseline --days 180 --seed 42
+
+# Improved strategy (regime filter, confidence scoring, ATR sizing, trailing stops)
+python -m backtest --mode improved --days 180 --seed 42
+
+# Side-by-side comparison report (Sharpe, Sortino, MDD, CVaR, worst day/week, net profit)
+python -m backtest --mode compare --days 180 --seed 42
+
+# JSON output for programmatic use
+python -m backtest --mode compare --days 180 --seed 42 --json
+```
+
+The comparison report outputs a table like:
+
+| Metric | Baseline | Improved | Delta |
+|--------|----------|----------|-------|
+| Sharpe Ratio | -11.39 | -2.20 | +9.19 |
+| Max Drawdown | 80.16% | 8.71% | -71.46% |
+| Trade Count | 341 | 111 | -230 |
+
+Walk-forward OOS optimisation and Monte Carlo resampling are available via
+`backtest.optimization` for parameter robustness validation.
 
 ---
 

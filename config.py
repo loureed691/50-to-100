@@ -54,6 +54,18 @@ RSI_OVERBOUGHT = float(os.getenv("RSI_OVERBOUGHT", "65"))
 EMA_SHORT = int(os.getenv("EMA_SHORT", "9"))
 EMA_LONG = int(os.getenv("EMA_LONG", "21"))
 
+# Minimum signal confidence (0-1) to open a position (0 = disabled)
+MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.0"))
+
+# Maximum portfolio heat: total capital fraction at risk across all open positions
+MAX_PORTFOLIO_HEAT = float(os.getenv("MAX_PORTFOLIO_HEAT", "0.06"))
+
+# Maximum acceptable slippage as a fraction of entry price
+MAX_SLIPPAGE_PCT = float(os.getenv("MAX_SLIPPAGE_PCT", "0.002"))
+
+# Prefer limit orders over market orders when supported
+USE_LIMIT_ORDERS = os.getenv("USE_LIMIT_ORDERS", "false").lower() in ("true", "1", "yes")
+
 # Candlestick interval to trade on (KuCoin: 1min, 3min, 5min, 15min, …)
 KLINE_INTERVAL = os.getenv("KLINE_INTERVAL", "5min")
 
