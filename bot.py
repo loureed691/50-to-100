@@ -163,6 +163,7 @@ class KuCoinBot:
             self.user_client = User(**kw)
 
         self.open_positions: dict[str, Position] = {}  # symbol → Position
+        self._symbol_info_cache: dict[str, dict] = {}
         self.consecutive_losses: int = 0
         self.session_start: datetime = datetime.now(timezone.utc)
         self.total_trades: int = 0
@@ -229,11 +230,15 @@ class KuCoinBot:
 
     def _symbol_info(self, symbol: str) -> dict:
         """Fetch trading rules (lot size, min size, etc.) for a symbol."""
+        if symbol in self._symbol_info_cache:
+            return self._symbol_info_cache[symbol]
         try:
             symbols = self.market_client.get_symbol_list()
             for s in symbols:
                 if s.get("symbol") == symbol:
+                    self._symbol_info_cache[symbol] = s
                     return s
+            self._symbol_info_cache[symbol] = {}
         except Exception as exc:
             log.warning("Could not fetch symbol info for %s: %s", symbol, exc)
         return {}

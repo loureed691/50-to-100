@@ -322,6 +322,30 @@ class TestBotPlaceMarketBuy(unittest.TestCase):
         pos = self.bot._place_market_buy("ETH-USDT", 100.0)
         self.assertIsNone(pos)
 
+    def test_reuses_cached_symbol_info_across_buys(self):
+        self.bot.market_client.get_ticker.return_value = {"price": "200.0"}
+        self.bot.market_client.get_symbol_list.return_value = [
+            {
+                "symbol": "ETH-USDT",
+                "baseIncrement": "0.001",
+                "baseMinSize": "0.001",
+            }
+        ]
+        self.bot.trade_client.create_market_order.return_value = {"orderId": "order1"}
+
+        self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.bot._place_market_buy("ETH-USDT", 100.0)
+
+        self.bot.market_client.get_symbol_list.assert_called_once()
+
+    def test_caches_symbol_info_misses(self):
+        self.bot.market_client.get_symbol_list.return_value = []
+
+        self.assertEqual(self.bot._symbol_info("MISSING-USDT"), {})
+        self.assertEqual(self.bot._symbol_info("MISSING-USDT"), {})
+
+        self.bot.market_client.get_symbol_list.assert_called_once()
+
 
 class TestBotManagePositions(unittest.TestCase):
     def setUp(self):
