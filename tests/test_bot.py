@@ -364,5 +364,147 @@ class TestBotManagePositions(unittest.TestCase):
         self.assertIn("BTC-USDT", self.bot.open_positions)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Paper mode tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_paper_bot() -> KuCoinBot:
+    """Create a KuCoinBot in paper mode with all SDK clients replaced by mocks."""
+    import config as cfg
+    with patch.object(cfg, "PAPER_MODE", True), \
+         patch.object(cfg, "API_KEY", ""), \
+         patch.object(cfg, "API_SECRET", ""), \
+         patch.object(cfg, "API_PASSPHRASE", ""):
+        bot = KuCoinBot()
+    bot.market_client = MagicMock()
+    bot.trade_client = MagicMock()
+    bot.user_client = MagicMock()
+    return bot
+
+
+class TestPaperModeInit(unittest.TestCase):
+    def test_paper_mode_no_credentials_required(self):
+        """Bot should start in paper mode without API credentials."""
+        import config as cfg
+        with patch.object(cfg, "PAPER_MODE", True), \
+             patch.object(cfg, "API_KEY", ""), \
+             patch.object(cfg, "API_SECRET", ""), \
+             patch.object(cfg, "API_PASSPHRASE", ""):
+            # Should not raise EnvironmentError
+            bot = KuCoinBot()  # noqa: F841
+
+    def test_paper_balance_initialised_to_initial_capital(self):
+        """paper_balance must start at INITIAL_CAPITAL_USDT."""
+        import config as cfg
+        with patch.object(cfg, "PAPER_MODE", True), \
+             patch.object(cfg, "API_KEY", ""), \
+             patch.object(cfg, "API_SECRET", ""), \
+             patch.object(cfg, "API_PASSPHRASE", ""):
+            bot = KuCoinBot()
+        self.assertAlmostEqual(bot.paper_balance, cfg.INITIAL_CAPITAL_USDT)
+
+    def test_live_mode_still_requires_credentials(self):
+        """Without PAPER_MODE, missing credentials must raise EnvironmentError."""
+        import config as cfg
+        with patch.object(cfg, "PAPER_MODE", False), \
+             patch.object(cfg, "API_KEY", ""), \
+             patch.object(cfg, "API_SECRET", ""), \
+             patch.object(cfg, "API_PASSPHRASE", ""):
+            with self.assertRaises(EnvironmentError):
+                KuCoinBot()
+
+
+class TestPaperModeBalance(unittest.TestCase):
+    def setUp(self):
+        self.bot = _make_paper_bot()
+
+    def test_usdt_balance_returns_paper_balance(self):
+        """_usdt_balance() must return paper_balance in paper mode."""
+        import config as cfg
+        with patch.object(cfg, "PAPER_MODE", True):
+            self.bot.paper_balance = 250.0
+            self.assertAlmostEqual(self.bot._usdt_balance(), 250.0)
+        # user_client must not be called in paper mode
+        self.bot.user_client.get_account_list.assert_not_called()
+
+
+class TestPaperModeBuy(unittest.TestCase):
+    def setUp(self):
+        self.bot = _make_paper_bot()
+        self.bot.paper_balance = 500.0
+        self.bot.market_client.get_ticker.return_value = {"price": "200.0"}
+        self.bot.market_client.get_symbol_list.return_value = [
+            {
+                "symbol": "ETH-USDT",
+                "baseIncrement": "0.001",
+                "baseMinSize": "0.001",
+            }
+        ]
+
+    def test_paper_buy_returns_position(self):
+        import config as cfg
+        with patch.object(cfg, "PAPER_MODE", True):
+            pos = self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.symbol, "ETH-USDT")
+
+    def test_paper_buy_deducts_actual_cost_from_paper_balance(self):
+        # price=200.0, usdt_amount=100.0 → qty=0.5, actual_cost=0.5*200.0=100.0
+        import config as cfg
+        self.bot.paper_balance = 500.0
+        with patch.object(cfg, "PAPER_MODE", True):
+            self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.assertAlmostEqual(self.bot.paper_balance, 400.0)
+
+    def test_paper_buy_insufficient_balance_returns_none(self):
+        import config as cfg
+        self.bot.paper_balance = 5.0  # less than usdt_amount=100.0
+        with patch.object(cfg, "PAPER_MODE", True):
+            pos = self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.assertIsNone(pos)
+        self.assertAlmostEqual(self.bot.paper_balance, 5.0)  # unchanged
+
+    def test_paper_buy_does_not_call_trade_client(self):
+        import config as cfg
+        with patch.object(cfg, "PAPER_MODE", True):
+            self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.bot.trade_client.create_market_order.assert_not_called()
+
+    def test_paper_order_id_has_paper_prefix(self):
+        import config as cfg
+        with patch.object(cfg, "PAPER_MODE", True):
+            pos = self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.assertTrue(pos.order_id.startswith("paper-"))
+
+
+class TestPaperModeSell(unittest.TestCase):
+    def setUp(self):
+        self.bot = _make_paper_bot()
+        self.pos = Position(
+            symbol="ETH-USDT",
+            order_id="paper-1",
+            entry_price=200.0,
+            quantity=0.5,
+            cost_usdt=100.0,
+            stop_loss=197.0,
+            take_profit=205.0,
+        )
+        self.bot.market_client.get_ticker.return_value = {"price": "210.0"}
+
+    def test_paper_sell_does_not_call_trade_client(self):
+        import config as cfg
+        with patch.object(cfg, "PAPER_MODE", True):
+            self.bot._place_market_sell(self.pos, reason="take-profit")
+        self.bot.trade_client.create_market_order.assert_not_called()
+
+    def test_paper_sell_credits_paper_balance(self):
+        import config as cfg
+        self.bot.paper_balance = 400.0
+        with patch.object(cfg, "PAPER_MODE", True):
+            self.bot._place_market_sell(self.pos, reason="take-profit")
+        # proceeds = 210.0 * 0.5 = 105.0
+        self.assertAlmostEqual(self.bot.paper_balance, 505.0)
+
+
 if __name__ == "__main__":
     unittest.main()
