@@ -493,6 +493,7 @@ class KuCoinBot:
         log.info("Starting trading session at %s", self.session_start.isoformat())
 
         while True:
+            cycle_start = time.monotonic()
             try:
                 equity = self._total_equity_usdt()
                 self._log_stats(equity)
@@ -531,7 +532,8 @@ class KuCoinBot:
             except Exception as exc:
                 log.exception("Unexpected error in main loop: %s", exc)
 
-            time.sleep(config.POLL_INTERVAL_SECONDS)
+            elapsed = time.monotonic() - cycle_start
+            time.sleep(max(0.0, config.POLL_INTERVAL_SECONDS - elapsed))
 
         self._log_stats(self._total_equity_usdt())
         log.info("Session ended.")
