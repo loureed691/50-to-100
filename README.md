@@ -17,7 +17,7 @@ single trading day by riding high-momentum setups across multiple USDT pairs.
 |-----------|--------|
 | Signal | RSI(14) recovery from oversold **+** EMA-9 crossing above EMA-21 |
 | Time frame | 5-minute candles |
-| Position sizing | 95 % of available balance spread across ≤ 3 concurrent positions |
+| Position sizing | 95 % of available balance spread across current entry signals (≤ 3 concurrent positions) |
 | Stop-loss | −1.5 % from entry |
 | Take-profit | +2.5 % from entry |
 | Circuit-breaker | Auto-pauses after 5 consecutive losses (5-minute cool-down) |

@@ -364,6 +364,67 @@ class TestBotManagePositions(unittest.TestCase):
         self.assertIn("BTC-USDT", self.bot.open_positions)
 
 
+class TestBotScanForEntries(unittest.TestCase):
+    def setUp(self):
+        self.bot = _make_bot()
+
+    def _pos(self, symbol: str) -> Position:
+        return Position(
+            symbol=symbol,
+            order_id="o1",
+            entry_price=100.0,
+            quantity=1.0,
+            cost_usdt=100.0,
+            stop_loss=98.5,
+            take_profit=102.5,
+        )
+
+    def test_single_signal_uses_full_trade_fraction(self):
+        import config as cfg
+        with patch.object(cfg, "TRADING_PAIRS", ["BTC-USDT", "ETH-USDT", "SOL-USDT"]), \
+             patch.object(cfg, "MAX_OPEN_POSITIONS", 3), \
+             patch.object(cfg, "TRADE_FRACTION", 0.95), \
+             patch.object(cfg, "MIN_TRADE_BALANCE_USDT", 1.0):
+            self.bot._usdt_balance = MagicMock(return_value=50.0)
+            self.bot._fetch_indicators = MagicMock(
+                side_effect=[{"rsi": 40, "ema_short": 2, "ema_long": 1}, None, None]
+            )
+            self.bot._is_buy_signal = MagicMock(return_value=True)
+            self.bot._place_market_buy = MagicMock(return_value=self._pos("BTC-USDT"))
+
+            self.bot._scan_for_entries()
+
+        self.bot._place_market_buy.assert_called_once()
+        symbol, usdt_amount = self.bot._place_market_buy.call_args.args
+        self.assertEqual(symbol, "BTC-USDT")
+        self.assertAlmostEqual(usdt_amount, 47.5)
+
+    def test_multiple_signals_split_trade_fraction(self):
+        import config as cfg
+        with patch.object(cfg, "TRADING_PAIRS", ["BTC-USDT", "ETH-USDT", "SOL-USDT"]), \
+             patch.object(cfg, "MAX_OPEN_POSITIONS", 3), \
+             patch.object(cfg, "TRADE_FRACTION", 0.95), \
+             patch.object(cfg, "MIN_TRADE_BALANCE_USDT", 1.0):
+            self.bot._usdt_balance = MagicMock(return_value=50.0)
+            self.bot._fetch_indicators = MagicMock(
+                side_effect=[
+                    {"rsi": 40, "ema_short": 2, "ema_long": 1},
+                    {"rsi": 42, "ema_short": 2, "ema_long": 1},
+                    None,
+                ]
+            )
+            self.bot._is_buy_signal = MagicMock(return_value=True)
+            self.bot._place_market_buy = MagicMock(
+                side_effect=[self._pos("BTC-USDT"), self._pos("ETH-USDT")]
+            )
+
+            self.bot._scan_for_entries()
+
+        self.assertEqual(self.bot._place_market_buy.call_count, 2)
+        self.assertAlmostEqual(self.bot._place_market_buy.call_args_list[0].args[1], 23.75)
+        self.assertAlmostEqual(self.bot._place_market_buy.call_args_list[1].args[1], 23.75)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Paper mode tests
 # ─────────────────────────────────────────────────────────────────────────────

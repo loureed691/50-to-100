@@ -428,13 +428,11 @@ class KuCoinBot:
             log.debug("Insufficient USDT balance (%.4f) — skipping entry scan", balance)
             return
 
-        usdt_per_trade = (balance * config.TRADE_FRACTION) / available_slots
+        candidates: list[str] = []
 
         for symbol in config.TRADING_PAIRS:
             if symbol in self.open_positions:
                 continue
-            if len(self.open_positions) >= config.MAX_OPEN_POSITIONS:
-                break
 
             ind = self._fetch_indicators(symbol)
             if ind is None:
@@ -446,9 +444,18 @@ class KuCoinBot:
             )
 
             if self._is_buy_signal(ind):
-                pos = self._place_market_buy(symbol, usdt_per_trade)
-                if pos:
-                    self.open_positions[symbol] = pos
+                candidates.append(symbol)
+
+        if not candidates:
+            return
+
+        trade_count = min(available_slots, len(candidates))
+        usdt_per_trade = (balance * config.TRADE_FRACTION) / trade_count
+
+        for symbol in candidates[:trade_count]:
+            pos = self._place_market_buy(symbol, usdt_per_trade)
+            if pos:
+                self.open_positions[symbol] = pos
 
     # ── Circuit breaker ───────────────────────────────────────────────────────
 
