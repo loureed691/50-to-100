@@ -370,23 +370,12 @@ class TestBotManagePositions(unittest.TestCase):
 
 def _make_paper_bot() -> KuCoinBot:
     """Create a KuCoinBot in paper mode with all SDK clients replaced by mocks."""
-    with patch.dict(
-        "os.environ",
-        {
-            "PAPER_MODE": "true",
-            "KUCOIN_API_KEY": "",
-            "KUCOIN_API_SECRET": "",
-            "KUCOIN_API_PASSPHRASE": "",
-        },
-    ):
-        import importlib
-        import config as cfg
-        importlib.reload(cfg)
-        with patch.object(cfg, "PAPER_MODE", True), \
-             patch.object(cfg, "API_KEY", ""), \
-             patch.object(cfg, "API_SECRET", ""), \
-             patch.object(cfg, "API_PASSPHRASE", ""):
-            bot = KuCoinBot()
+    import config as cfg
+    with patch.object(cfg, "PAPER_MODE", True), \
+         patch.object(cfg, "API_KEY", ""), \
+         patch.object(cfg, "API_SECRET", ""), \
+         patch.object(cfg, "API_PASSPHRASE", ""):
+        bot = KuCoinBot()
     bot.market_client = MagicMock()
     bot.trade_client = MagicMock()
     bot.user_client = MagicMock()
@@ -442,6 +431,7 @@ class TestPaperModeBalance(unittest.TestCase):
 class TestPaperModeBuy(unittest.TestCase):
     def setUp(self):
         self.bot = _make_paper_bot()
+        self.bot.paper_balance = 500.0
         self.bot.market_client.get_ticker.return_value = {"price": "200.0"}
         self.bot.market_client.get_symbol_list.return_value = [
             {
@@ -458,12 +448,21 @@ class TestPaperModeBuy(unittest.TestCase):
         self.assertIsNotNone(pos)
         self.assertEqual(pos.symbol, "ETH-USDT")
 
-    def test_paper_buy_deducts_from_paper_balance(self):
+    def test_paper_buy_deducts_actual_cost_from_paper_balance(self):
+        # price=200.0, usdt_amount=100.0 → qty=0.5, actual_cost=0.5*200.0=100.0
         import config as cfg
         self.bot.paper_balance = 500.0
         with patch.object(cfg, "PAPER_MODE", True):
             self.bot._place_market_buy("ETH-USDT", 100.0)
         self.assertAlmostEqual(self.bot.paper_balance, 400.0)
+
+    def test_paper_buy_insufficient_balance_returns_none(self):
+        import config as cfg
+        self.bot.paper_balance = 5.0  # less than usdt_amount=100.0
+        with patch.object(cfg, "PAPER_MODE", True):
+            pos = self.bot._place_market_buy("ETH-USDT", 100.0)
+        self.assertIsNone(pos)
+        self.assertAlmostEqual(self.bot.paper_balance, 5.0)  # unchanged
 
     def test_paper_buy_does_not_call_trade_client(self):
         import config as cfg

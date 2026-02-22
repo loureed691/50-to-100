@@ -28,7 +28,7 @@ single trading day by riding high-momentum setups across multiple USDT pairs.
 ## Requirements
 
 * Python 3.10+
-* A KuCoin account with **API credentials** (API key, secret, passphrase)
+* A KuCoin account with **API credentials** (API key, secret, passphrase) — required for live trading; optional when running in **paper mode** (market data endpoints are public)
 
 ---
 
@@ -42,7 +42,13 @@ cd 50-to-100
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Export your KuCoin API credentials
+# 3a. Paper mode — no credentials needed, orders are simulated
+export PAPER_MODE=true
+python bot.py
+
+# --- OR ---
+
+# 3b. Live trading — export your KuCoin API credentials
 export KUCOIN_API_KEY="your-api-key"
 export KUCOIN_API_SECRET="your-api-secret"
 export KUCOIN_API_PASSPHRASE="your-passphrase"
@@ -57,6 +63,10 @@ python bot.py
 Alternatively, create a `.env` file in the project root (never commit it):
 
 ```
+# For paper mode (credentials optional)
+PAPER_MODE=true
+
+# For live trading
 KUCOIN_API_KEY=your-api-key
 KUCOIN_API_SECRET=your-api-secret
 KUCOIN_API_PASSPHRASE=your-passphrase
@@ -71,9 +81,9 @@ All parameters can be tuned via environment variables or by editing `config.py`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KUCOIN_API_KEY` | — | KuCoin API key (required) |
-| `KUCOIN_API_SECRET` | — | KuCoin API secret (required) |
-| `KUCOIN_API_PASSPHRASE` | — | KuCoin API passphrase (required) |
+| `KUCOIN_API_KEY` | — | KuCoin API key (required for live trading) |
+| `KUCOIN_API_SECRET` | — | KuCoin API secret (required for live trading) |
+| `KUCOIN_API_PASSPHRASE` | — | KuCoin API passphrase (required for live trading) |
 | `KUCOIN_SANDBOX` | `false` | Use sandbox environment |
 | `PAPER_MODE` | `false` | Simulate orders without sending them to KuCoin (real market data, no real trades) |
 | `INITIAL_CAPITAL` | `50.0` | Starting USDT amount |

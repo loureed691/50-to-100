@@ -154,8 +154,13 @@ class KuCoinBot:
         )
 
         self.market_client = Market(**kw)
-        self.trade_client = Trade(**kw)
-        self.user_client = User(**kw)
+        if config.PAPER_MODE:
+            # Trade and User clients are not needed in paper mode
+            self.trade_client = None
+            self.user_client = None
+        else:
+            self.trade_client = Trade(**kw)
+            self.user_client = User(**kw)
 
         self.open_positions: dict[str, Position] = {}  # symbol → Position
         self.consecutive_losses: int = 0
@@ -316,8 +321,15 @@ class KuCoinBot:
                 return None
 
             if config.PAPER_MODE:
+                actual_cost = qty * price
+                if actual_cost > self.paper_balance:
+                    log.warning(
+                        "Insufficient paper balance for %s: have %.2f USDT, need %.2f USDT — skipping buy",
+                        symbol, self.paper_balance, actual_cost,
+                    )
+                    return None
                 order_id = f"paper-{symbol}-{int(datetime.now(timezone.utc).timestamp() * 1e9)}"
-                self.paper_balance -= usdt_amount
+                self.paper_balance -= actual_cost
             else:
                 order = self.trade_client.create_market_order(
                     symbol=symbol,
@@ -325,6 +337,7 @@ class KuCoinBot:
                     size=str(qty),
                 )
                 order_id = order.get("orderId", "unknown")
+                actual_cost = usdt_amount
             stop = price * (1 - config.STOP_LOSS_PCT)
             take = price * (1 + config.TAKE_PROFIT_PCT)
 
@@ -333,7 +346,7 @@ class KuCoinBot:
                 order_id=order_id,
                 entry_price=price,
                 quantity=qty,
-                cost_usdt=usdt_amount,
+                cost_usdt=actual_cost,
                 stop_loss=stop,
                 take_profit=take,
             )
