@@ -1,4 +1,4 @@
-.PHONY: install dev test lint fmt help
+.PHONY: install dev test verify lint fmt help
 
 PYTHON ?= python
 
@@ -25,3 +25,5 @@ fmt: install-dev ## Auto-format and fix safe lint issues
 test: install-dev ## Run the full test suite (lint + unit tests)
 	$(PYTHON) -m ruff check .
 	$(PYTHON) -m pytest tests/ -v
+
+verify: test ## Verify the project from a fresh environment

@@ -34,13 +34,17 @@ TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.025"))  # 2.5 %
 
 # ── Trading Pairs ─────────────────────────────────────────────────────────────
 # List of symbols to scan for opportunities (KuCoin format: BASE-QUOTE)
-TRADING_PAIRS = os.getenv(
-    "TRADING_PAIRS",
-    "BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,DOGE-USDT,ADA-USDT,AVAX-USDT,"
-    "DOT-USDT,POL-USDT,LINK-USDT,LTC-USDT,UNI-USDT,ATOM-USDT,TRX-USDT,"
-    "NEAR-USDT,APT-USDT,OP-USDT,ARB-USDT,SUI-USDT,TON-USDT,SHIB-USDT,"
-    "BCH-USDT,FIL-USDT,INJ-USDT",
-).split(",")
+TRADING_PAIRS = [
+    pair.strip()
+    for pair in os.getenv(
+        "TRADING_PAIRS",
+        "BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,XRP-USDT,DOGE-USDT,ADA-USDT,AVAX-USDT,"
+        "DOT-USDT,POL-USDT,LINK-USDT,LTC-USDT,UNI-USDT,ATOM-USDT,TRX-USDT,"
+        "NEAR-USDT,APT-USDT,OP-USDT,ARB-USDT,SUI-USDT,TON-USDT,SHIB-USDT,"
+        "BCH-USDT,FIL-USDT,INJ-USDT",
+    ).split(",")
+    if pair.strip()
+]
 
 # ── Strategy Parameters ───────────────────────────────────────────────────────
 # RSI period

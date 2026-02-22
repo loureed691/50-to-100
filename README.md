@@ -124,6 +124,7 @@ Tunable indicators and limits — see `.env.example` for exact defaults:
 | `make install-dev` | Install runtime + dev dependencies (`requirements-dev.txt`, includes ruff & pytest) |
 | `make dev` | Install dev deps and run bot in paper mode |
 | `make test` | Install dev deps, run lint (ruff) + full unit test suite |
+| `make verify` | Canonical verification command (currently equivalent to `make test`) |
 | `make lint` | Run ruff linter only |
 | `make fmt` | Auto-fix safe lint issues and format code |
 
